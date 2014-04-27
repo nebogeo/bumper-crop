@@ -170,11 +170,11 @@
      (linear-layout
       0 'vertical
       (layout 'fill-parent 'wrap-content 1 'top 0)
-      (list 255 255 255 255)
+      (list 155 255 155 255)
       (list
        (text-view 0 "Soil Test" 40 (layout 'fill-parent 'wrap-content 1 'left 10))
        (text-view 0 "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. " 20 (layout 'fill-parent 'wrap-content 1 'left 10))
-       (button 0 "One" 40 (layout 'fill-parent 'wrap-content 1 'left 10)
+       (button 0 "Done" 40 (layout 'fill-parent 'wrap-content 1 'left 10)
                (lambda () '()))
 
        )
@@ -227,16 +227,16 @@
 
      (linear-layout
       0 'vertical
-      (layout 'fill-parent 'fill-parent 0.1 'top 20)
+      (layout 'wrap-content 'fill-parent 0.05 'top 20)
       (list 0 0 0 0)
       (list
-       (button 0 "Roll dice" 40 (layout 'fill-parent 'wrap-content 1 'left 10)
+       (button 0 "Roll dice" 30 (layout 'wrap-content 'wrap-content 1 'left 10)
                (lambda () '()))
-       (button 0 "One" 40 (layout 'fill-parent 'wrap-content 1 'left 10)
+       (button 0 "One" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
                (lambda () '()))
-       (button 0 "Two" 40 (layout 'fill-parent 'wrap-content 1 'left 10)
+       (button 0 "Two" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
                (lambda () '()))
-       (button 0 "Three" 40 (layout 'fill-parent 'wrap-content 1 'left 10)
+       (button 0 "Three" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
                (lambda () '()))
        )
       )))
