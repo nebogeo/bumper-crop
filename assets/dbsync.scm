@@ -13,7 +13,6 @@
 ;; You should have received a copy of the GNU Affero General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 ;; abstractions for synced databased
 
 (msg "dbsync.scm")
@@ -81,7 +80,7 @@
    'entity-values
    (ktv-set
     (get-current 'entity-values '())
-    (ktv-create key type value))))
+    (ktv key type value))))
 
 (define (entity-set! ktv-list)
   (set-current! 'entity-values ktv-list))
@@ -101,7 +100,10 @@
         ;;
         (begin
           (msg "entity-set-value! - adding new " key "of type" type "to entity")
-          (entity-add-value-create! key type value)))))
+          (entity-add-value-create! key type value)))
+    ;; save straight to local db every time
+    (entity-update-single-value! (list key type value))
+    ))
 
 
 (define (date-time->string dt)
@@ -124,15 +126,15 @@
 
 
 (define (entity-create! db table entity-type ktv-list)
-  (msg "creating:" entity-type ktv-list)
+  ;;(msg "creating:" entity-type ktv-list)
   (let ((values
          (append
           (list
-           (ktv-create "user" "varchar" (get-current 'user-id "none"))
-           (ktv-create "time" "varchar" (date-time->string (date-time)))
-           (ktv-create "lat" "real" (car (get-current 'location '(0 0))))
-           (ktv-create "lon" "real" (cadr (get-current 'location '(0 0))))
-           (ktv-create "deleted" "int" 0))
+           (ktv "user" "varchar" (get-current 'user-id "none"))
+           (ktv "time" "varchar" (date-time->string (date-time)))
+           (ktv "lat" "real" (car (get-current 'location '(0 0))))
+           (ktv "lon" "real" (cadr (get-current 'location '(0 0))))
+           (ktv "deleted" "int" 0))
           ktv-list)))
     (let ((r (insert-entity/get-unique
               db table entity-type (get-current 'user-id "no id")
@@ -145,7 +147,7 @@
   (let ((db (get-current 'db #f))
         (table (get-current 'table #f)))
     ;; standard bits
-    (let ((values (dbg (get-current 'entity-values '())))
+    (let ((values (get-current 'entity-values '()))
           (unique-id (ktv-get (get-current 'entity-values '()) "unique_id")))
       (cond
        ((and unique-id (not (null? values)))
@@ -155,6 +157,17 @@
         )
        (else
         (msg "no values or no id to update as entity:" unique-id "values:" values))))))
+
+(define (entity-update-single-value! ktv)
+  (let ((db (get-current 'db #f))
+        (table (get-current 'table #f))
+        (unique-id (ktv-get (get-current 'entity-values '()) "unique_id")))
+    (cond
+     (unique-id
+      (update-entity db table (entity-id-from-unique db table unique-id) (list ktv)))
+     (else
+      (msg "no values or no id to update as entity:" unique-id "values:" values)))))
+
 
 (define (entity-reset!)
   (set-current! 'entity-values '())
@@ -173,10 +186,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; syncing code
 
+;; todo - separate logic from gui and stick this in common code
+;; then we can unit test this stuff...
+
 (define url "http://192.168.2.1:8889/symbai?")
 
 (define (build-url-from-ktv ktv)
-  (string-append "&" (ktv-key ktv) ":" (ktv-type ktv) ":" (number->string (ktv-version ktv)) "=" (stringify-value-url ktv)))
+  (string-append "&" (ktv-key ktv) ":" (ktv-type ktv) "=" (stringify-value-url ktv)))
 
 (define (build-url-from-ktvlist ktvlist)
   (foldl
@@ -195,15 +211,13 @@
    "&version=" (number->string (list-ref (car e) 3))
    (build-url-from-ktvlist (cadr e))))
 
+
 ;; todo fix all hardcoded paths here
 (define (send-files ktvlist)
-  (msg "send-files" ktvlist)
   (foldl
    (lambda (ktv r)
-     (msg (ktv-type ktv))
      (if (equal? (ktv-type ktv) "file")
          (begin
-           (msg "sending" (ktv-value ktv))
            (cons (http-upload
                   (string-append "upload-" (ktv-value ktv))
                   "http://192.168.2.1:8889/symbai?fn=upload"
@@ -212,9 +226,56 @@
          r))
    '() ktvlist))
 
+;; redundant second pass to syncronise files - independant of the
+;; rest of the syncing system
+(define (sync-files server-list)
+  (let ((local-list (dir-list "/sdcard/symbai/files/")))
+    ;; search for all local files in server list
+    (crop
+     (append
+      (foldl
+       (lambda (file r)
+         ;; send files not present
+         (if (or
+              (eqv? (string-ref file 0) #\.)
+              (in-list? file server-list))
+             r (cons
+                (http-upload
+                 (string-append "upload-" file)
+                 "http://192.168.2.1:8889/symbai?fn=upload"
+                 (string-append "/sdcard/symbai/files/" file)) r)))
+       '()
+       local-list)
+      ;; search for all server files in local list
+      (foldl
+       (lambda (file r)
+         ;; request files not present
+         (if (in-list? file local-list)
+             r (cons
+                (http-download
+                 (string-append "download-" file)
+                 (string-append "http://192.168.2.1:8889/files/" file)
+                 (string-append "/sdcard/symbai/files/" file)) r)))
+       '()
+       server-list))
+     ;; restrict the number of uploads each time round
+     2)))
+
+(define (start-sync-files)
+  (list
+   (http-request
+    (string-append "file-list")
+    (string-append url "fn=file-list")
+    (lambda (file-list)
+      (let ((r (sync-files file-list)))
+        (when (not (null? r))
+              (set-current! 'upload 0)
+              (debug! "Found a mismatch with files on raspberry pi - fixing..."))
+        r)))))
+
+
 ;; spit all dirty entities to server
 (define (spit db table entities)
-  (msg "running spit")
   (foldl
    (lambda (e r)
      ;;(msg (car (car e)))
@@ -254,12 +315,10 @@
 
 ;; todo fix all hardcoded paths here
 (define (request-files ktvlist)
-  (msg "request-files")
   (foldl
    (lambda (ktv r)
      (if (equal? (ktv-type ktv) "file")
          (begin
-           (msg "requesting" (ktv-value ktv))
            (cons (http-download
                   (string-append "download-" (ktv-value ktv))
                   (string-append "http://192.168.2.1:8889/files/" (ktv-value ktv))
@@ -269,7 +328,6 @@
    '() ktvlist))
 
 (msg "suck ent")
-
 
 (define (suck-entity-from-server db table unique-id)
   ;; ask for the current version
@@ -282,8 +340,6 @@
             (ktvlist (list-ref data 1))
             (unique-id (list-ref entity 1))
             (exists (entity-exists? db table unique-id)))
-       (msg "from server...:")
-       (msg ktvlist)
        ;; need to check exists again here, due to delays back and forth
        (if (not exists)
            (insert-entity-wholesale
@@ -301,53 +357,71 @@
         (update-widget 'text-view (get-id "sync-dirty") 'text (build-dirty db))
         (request-files ktvlist))))))
 
+(define (build-entity-requests db table version-data)
+  (foldl
+   (lambda (i r)
+     (let* ((unique-id (car i))
+            (version (cadr i))
+            (exists (entity-exists? db table unique-id))
+            (old
+             (if exists
+                 (> version (get-entity-version
+                             db table
+                             (get-entity-id db table unique-id)))
+                 #f)))
+
+       ;; if we don't have this entity or the version on the server is newer
+       (if (and (or (not exists) old)
+                ;; limit this to 5 a time
+                (< (length r) 5))
+           (cons (suck-entity-from-server db table unique-id) r)
+           r)))
+   '()
+   version-data))
+
+(define (mark-unlisted-entities-dirty! db table version-data)
+  (msg "mark-unlisted...")
+  ;; load all local entities
+  (let ((ids (all-unique-ids db table))
+        (server-ids (map car version-data)))
+    ;; look for each one in data
+    (for-each
+     (lambda (id)
+       (when (not (in-list? id server-ids))
+             (msg "can't find " id " in server data, marking dirty")
+             (debug! "Have an entity here not on raspberry pi - marking for upload...")
+             ;; mark those not present as dirty for next spit cycle
+             (update-entity-dirtify db table id)))
+     ids)))
 
 ;; repeatedly read version and request updates
 (define (suck-new db table)
-  (msg "suck-new")
   (debug! "Requesting new entities")
   (list
    (http-request
     "new-entities-req"
     (string-append url "fn=entity-versions&table=" table)
     (lambda (data)
-      (msg "entity-versions:" data)
-      (let ((r (foldl
-                (lambda (i r)
-                  (let* ((unique-id (car i))
-                         (version (cadr i))
-                         (exists (entity-exists? db table unique-id))
-                         (old
-                          (if exists
-                              (> version (get-entity-version
-                                          db table
-                                          (get-entity-id db table unique-id)))
-                              #f)))
-
-                    ;; if we don't have this entity or the version on the server is newer
-                    (if (and (or (not exists) old)
-                             ;; limit this to 5 a time
-                             (< (length r) 5))
-                        (cons (suck-entity-from-server db table unique-id) r)
-                        r)))
-                '()
-                data)))
+      (let ((new-entity-requests (build-entity-requests db table data)))
+        (alog "suck-new: marking dirty")
+        (mark-unlisted-entities-dirty! db table data)
+        (alog "suck-new: done marking dirty")
         (cond
-         ((null? r)
+         ((null? new-entity-requests)
           (debug! "No new data to download")
           (set-current! 'download 1)
           (append
            (if (eqv? (get-current 'upload 0) 1)
                (list (play-sound "ping")) '())
            (list
-            (toast "No new data to download")) r))
+            (toast "No new data to download"))))
          (else
           (debug! (string-append
                    "Requesting "
-                   (number->string (length r)) " entities"))
+                   (number->string (length new-entity-requests)) " entities"))
           (cons
            (play-sound "active")
-           r))))))))
+           new-entity-requests))))))))
 
 (msg "build-dirty defined...")
 
@@ -359,7 +433,6 @@
      "Stream data: " (number->string (car stream)) "/" (number->string (cadr stream)))))
 
 (define (upload-dirty db)
-  (msg "upload-dirty")
   (let ((r (append
             (spit db "sync" (dirty-entities db "sync"))
             (spit db "stream" (dirty-entities db "stream")))))
@@ -390,8 +463,6 @@
        (list
         ;;(update-widget 'text-view (get-id "sync-connect") 'text state)
         ))))))
-
-
 
 
 (define i18n-lang 0)
@@ -479,20 +550,30 @@
              50 (layout 'fill-parent 'wrap-content 1 'centre 5)))
 
 (define (medit-text id type fn)
-  (vert
-   (text-view 0 (mtext-lookup id)
-              30 (layout 'wrap-content 'wrap-content -1 'centre 0))
-   (edit-text (symbol->id id) "" 30 type
-              (layout 'fill-parent 'wrap-content -1 'centre 0)
-              fn)))
+  (linear-layout
+   (make-id (string-append (symbol->string id) "-container"))
+   'vertical
+   (layout 'fill-parent 'wrap-content 1 'centre 20)
+   (list 0 0 0 0)
+   (list
+    (text-view 0 (mtext-lookup id)
+               30 (layout 'wrap-content 'wrap-content -1 'centre 0))
+    (edit-text (symbol->id id) "" 30 type
+               (layout 'fill-parent 'wrap-content -1 'centre 0)
+               fn))))
 
 (define (medit-text-scale id type fn)
-  (vert
-   (text-view 0 (mtext-lookup id)
-              30 (layout 'wrap-content 'wrap-content 1 'centre 0))
-   (edit-text (symbol->id id) "" 30 type
-              (layout 'fill-parent 'wrap-content 1 'centre 0)
-              fn)))
+  (linear-layout
+   (make-id (string-append (symbol->string id) "-container"))
+   'vertical
+   (layout 'fill-parent 'wrap-content 1 'centre 20)
+   (list 0 0 0 0)
+   (list
+    (text-view 0 (mtext-lookup id)
+               30 (layout 'wrap-content 'wrap-content 1 'centre 0))
+    (edit-text (symbol->id id) "" 30 type
+               (layout 'fill-parent 'wrap-content 1 'centre 0)
+               fn))))
 
 (define (mspinner id types fn)
   (vert
@@ -505,25 +586,30 @@
             (lambda (c) (fn c)))))
 
 (define (mspinner-other id types fn)
-  (horiz
-   (vert
-    (text-view (symbol->id id)
-               (mtext-lookup id)
-               30 (layout 'wrap-content 'wrap-content 1 'centre 10))
-    (spinner (make-id (string-append (symbol->string id) "-spinner"))
-             (map mtext-lookup types)
-             (layout 'wrap-content 'wrap-content 1 'centre 0)
-             (lambda (c)
-               ;; dont call if set to "other"
-               (if (< c (- (length types) 1))
-                   (fn c)
-                   '()))))
-   (vert
-    (mtext-scale 'other)
-    (edit-text (make-id (string-append (symbol->string id) "-edit-text"))
-               "" 30 "normal"
-               (layout 'fill-parent 'wrap-content 1 'centre 0)
-               (lambda (t) (fn t))))))
+  (linear-layout
+   (make-id (string-append (symbol->string id) "-container"))
+   'horizontal
+   (layout 'fill-parent 'wrap-content 1 'centre 5)
+   (list 0 0 0 0)
+   (list
+    (vert
+     (text-view (symbol->id id)
+                (mtext-lookup id)
+                30 (layout 'wrap-content 'wrap-content 1 'centre 10))
+     (spinner (make-id (string-append (symbol->string id) "-spinner"))
+              (map mtext-lookup types)
+              (layout 'wrap-content 'wrap-content 1 'centre 0)
+              (lambda (c)
+                ;; dont call if set to "other"
+                (if (< c (- (length types) 1))
+                    (fn c)
+                    '()))))
+    (vert
+     (mtext-scale 'other)
+     (edit-text (make-id (string-append (symbol->string id) "-edit-text"))
+                "" 30 "normal"
+                (layout 'fill-parent 'wrap-content 1 'centre 0)
+                (lambda (t) (fn t)))))))
 
 (define (mspinner-other-vert id text-id types fn)
   (linear-layout
@@ -640,20 +726,36 @@
        (list-ref d 5)))))
 
 (define (do-gps display-id key-prepend)
-  (let ((loc (get-current 'location '(0 0))))
-    (entity-set-value! (string-append key-prepend "-lat") "real" (car loc))
-    (entity-set-value! (string-append key-prepend "-lon") "real" (cadr loc))
-    (list
-     (update-widget
-      'text-view
-      (get-id (string-append (symbol->string display-id) "-lat"))
-      'text
-      (number->string (car loc)))
-     (update-widget
-      'text-view
-      (get-id (string-append (symbol->string display-id) "-lon"))
-      'text
-      (number->string (cadr loc))))))
+  (list
+   (alert-dialog
+    "gps-check"
+    (mtext-lookup 'gps-are-you-sure)
+    (lambda (v)
+      (cond
+       ((eqv? v 1)
+        (list
+         (alert-dialog
+          "gps-check2"
+          (mtext-lookup 'gps-are-you-sure-2)
+          (lambda (v)
+            (cond
+             ((eqv? v 1)
+              (let ((loc (get-current 'location '(0 0))))
+                (entity-set-value! (string-append key-prepend "-lat") "real" (car loc))
+                (entity-set-value! (string-append key-prepend "-lon") "real" (cadr loc))
+                (list
+                 (update-widget
+                  'text-view
+                  (get-id (string-append (symbol->string display-id) "-lat"))
+                  'text
+                  (number->string (car loc)))
+                 (update-widget
+                  'text-view
+                  (get-id (string-append (symbol->string display-id) "-lon"))
+                  'text
+                  (number->string (cadr loc))))))
+             (else '()))))))
+       (else '()))))))
 
 (define (mupdate-gps display-id key-prepend)
   (let ((lat (entity-get-value (string-append key-prepend "-lat")))
@@ -758,18 +860,6 @@
      (else (_ (cdr l) (+ i 1)))))
   (_ arr 0))
 
-(define vowel (map symbol->string (list 'a 'e 'i 'o 'u)))
-(define consonant (map symbol->string (list 'b 'c 'd 'f 'g 'h 'j 'k 'l 'm 'n 'p 'q 'r 's 't 'v 'w 'x 'y 'z)))
-
-(define (word-gen)
-  (define (_ s vowel-prob)
-    (cond
-     ((zero? s) '())
-     ((< (random) vowel-prob)
-      (cons (choose vowel) (_ (- s 1) (/ vowel-prob 2))))
-     (else
-      (cons (choose consonant) (_ (- s 1) (* vowel-prob 2))))))
-  (apply string-append (_ (+ 3 (random-int 8)) 0.5)))
 
 
 
@@ -778,22 +868,22 @@
                   (ktvlist-merge
                    default-ktvlist
                    (list
-                    (ktv "name" "varchar" (string-append "Village-" (number->string (random-int 1000))))
+                    (ktv "name" "varchar" (string-append "Village-" (number->string (random 1000))))
                     (ktv "block" "varchar" (word-gen))
                     (ktv "district" "varchar" (word-gen))
-                    (ktv "car" "int" (random-int 2))))))
+                    (ktv "car" "int" (random 2))))))
 
 (define (simpsons-household db table parent default-ktvlist)
   (entity-create! db table "household"
                   (ktvlist-merge
                    default-ktvlist
                    (list
-                    (ktv "name" "varchar" (string-append "Household-" (number->string (random-int 1000))))
-                    (ktv "num-pots" "int" (random-int 10))
+                    (ktv "name" "varchar" (string-append "Household-" (number->string (random 1000))))
+                    (ktv "num-pots" "int" (random 10))
                     (ktv "parent" "varchar" parent)))))
 
 (define (simpsons-individual db table parent default-ktvlist)
-  (let ((n (random-int 1000)))
+  (let ((n (random 1000)))
   (entity-create! db table "individual"
                   (ktvlist-merge
                    default-ktvlist
@@ -802,130 +892,130 @@
   (choose
    (list
    (list
-    (ktv-create "name" "varchar"
+    (ktv "name" "varchar"
                 (string-append "Abe-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "abe.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "abe.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Akira-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "akira.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "akira.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Apu-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "apu.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "apu.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Barney-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "barney.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "barney.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Bart-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "bartsimpson.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "bartsimpson.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Billy-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "billy.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "billy.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Carl-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "carl.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "carl.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Cletus-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "cletus.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "cletus.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "ComicBookGuy-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "comicbookguy.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "comicbookguy.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Homer-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "homersimpson.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "homersimpson.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Jasper-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "jasper.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "jasper.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Kent-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "kentbrockman.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "kentbrockman.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Kodos-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "kodos.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "kodos.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Lenny-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "lenny.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "lenny.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Lisa-" (number->string n)))
-    (ktv-create "gender" "varchar" "female")
-    (ktv-create "photo" "file" "lisasimpson.jpg"))
+    (ktv "gender" "varchar" "female")
+    (ktv "photo" "file" "lisasimpson.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Marge-" (number->string n)))
-    (ktv-create "gender" "varchar" "female")
-    (ktv-create "photo" "file" "margesimpson.jpg"))
+    (ktv "gender" "varchar" "female")
+    (ktv "photo" "file" "margesimpson.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Martin-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "martinprince.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "martinprince.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Milhouse-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "milhouse.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "milhouse.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "MrBurns-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "mrburns.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "mrburns.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Ned-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "nedflanders.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "nedflanders.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Nelson-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "nelson.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "nelson.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Otto-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "otto.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "otto.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Ralph-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "ralphwiggum.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "ralphwiggum.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "Santaslittlehelper-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "santaslittlehelper.jpg"))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "santaslittlehelper.jpg"))
    (list
-    (ktv-create
+    (ktv
      "name" "varchar" (string-append "SideshowBob-" (number->string n)))
-    (ktv-create "gender" "varchar" "male")
-    (ktv-create "photo" "file" "sideshowbob.jpg")))))))))
+    (ktv "gender" "varchar" "male")
+    (ktv "photo" "file" "sideshowbob.jpg")))))))))
 
 (define (looper! n fn)
   (when (not (zero? n))
@@ -945,7 +1035,42 @@
           (msg "making household" i)
           (let ((household (simpsons-household db table village household-ktvlist)))
             (looper!
-             (random-int 10)
+             (random 10)
              (lambda (i)
                (msg "making individual" i)
                (simpsons-individual db table household individual-ktvlist))))))))))
+
+
+(define (mangle-test! db table entities)
+  (define (_ n)
+    (when (not (zero? n))
+          (let ((type (choose entities)))
+            (msg type)
+            (let ((entities (all-entities db table type)))
+              (msg "entities:" entities)
+              (when (not (null? entities))
+                    (let ((id (choose entities)))
+                      (msg "entity id:" id)
+                      (let ((ktv-list (get-entity db table id)))
+                        (when (not (null? ktv-list))
+                              (entity-init! db table type ktv-list)
+                              (for-each
+                               (lambda (ktv)
+                                 (when (and
+                                        (not (equal? (ktv-key ktv) "deleted"))
+                                        (not (equal? (ktv-key ktv) "unique_id"))
+                                        (not (equal? (ktv-key ktv) "parent"))
+                                        (eqv? (random 10) 0))
+                                       (if (equal? (ktv-type ktv) "varchar")
+                                           (entity-set-value! (ktv-key ktv) (ktv-type ktv)
+                                                              (string-append
+                                                               (get-current 'user-id "noid")
+                                                               (random-value-for-type (ktv-type ktv))))
+                                           (entity-set-value! (ktv-key ktv) (ktv-type ktv)
+                                                              (random-value-for-type (ktv-type ktv))))))
+                               ktv-list)
+                              (msg "modifying" type id)
+                              (entity-update-values!))
+                        )))))
+          (_ (- n 1))))
+  (_ (random 10)))

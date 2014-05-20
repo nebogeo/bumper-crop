@@ -24,37 +24,78 @@
   (if (< n 0) (- n) n))
 
 (define (dice-roll)
-  (+ 1 (inexact->exact (abs (floor (* (rndf) 6))))))
+  1)
+;;  (+ 1 (inexact->exact (abs (floor (* (rndf) 6))))))
 
-(define (player name location points view)
-  (list name location points view))
+(define crop-cycle (list 'buy-treat 'plough 'sow))
+(define crop-tasks (list 'irrigate 'weed 'fertilise
+                         'pest-control 'disease-control))
+
+(define (crop type)
+  (list type 0 '()))
+
+(define (crop-type c) (list-ref c 0))
+(define (crop-stage c) (list-ref c 1))
+(define (crop-modify-stage c v) (list-replace c 1 v))
+(define (crop-tasks c) (list-ref c 2))
+(define (crop-modify-tasks c v) (list-replace c 2 v))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (player name location points money items crops view)
+  (list name location points money items crops view))
+
+(define (new-player name location view)
+  (player name location 0 500 '() (list (crop "Cocoa")) view))
 
 (define (player-name p) (list-ref p 0))
 (define (player-location p) (list-ref p 1))
+(define (player-modify-location p v) (list-replace p 1 v))
 (define (player-points p) (list-ref p 2))
-(define (player-view p) (list-ref p 3))
-(define (player-modify-view p v) (list-replace p 3 v))
+(define (player-money p) (list-ref p 3))
+(define (player-modify-money p v) (list-replace p 3 v))
+(define (player-items p) (list-ref p 4))
+(define (player-modify-items p v) (list-replace p 4 v))
+(define (player-crops p) (list-ref p 5))
+(define (player-modify-crops p v) (list-replace p 5 v))
+(define (player-view p) (list-ref p 6))
+(define (player-modify-view p v) (list-replace p 6 v))
+
+(define (player-add-crop p c)
+  (player-modify-crops p (cons c (player-crops p))))
 
 ;; pass in whole board in case we need other players
-(define (player-update p board)
+(define (player-update p choice board)
   (let* ((new-location
           (modulo ;; loop
            (+ (dice-roll) (player-location p))
            (length (board-places board))))
          (place (list-ref (board-places board) new-location))
          (action (place-action place)))
+    (msg "updating" (player-name p))
+    (msg "location: " new-location)
     (action
-     (player
-      (player-name p)
-      new-location
-      (player-points p)
-      (player-view-move (player-view p) new-location)))))
+     (player-modify-location
+      (player-modify-view
+       p (player-view-move (player-view p) new-location))
+      new-location) choice)))
+
+(define (player-random-choice p board)
+  (let ((place (list-ref (board-places board) (player-location p))))
+    (choose (place-choices place))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; action takes player and returns a new one
-(define (place action)
-  (list action))
+(define (place number code choices action)
+  (list number code choices action))
 
-(define (place-action p) (list-ref p 0))
+(define (place-number p) (list-ref p 0))
+(define (place-code p) (list-ref p 1))
+(define (place-choices p) (list-ref p 2))
+(define (place-action p) (list-ref p 3))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (game-board places players)
   (list places players))
@@ -63,27 +104,46 @@
 (define (board-players b) (list-ref b 1))
 (define (board-modify-players b v) (list-replace b 1 v))
 
-(define (board-update b player-index)
+(define (random-choice b player-index)
+  (player-random-choice (list-ref (board-players b) player-index) b))
+
+(define (board-update b player-index choice)
   (game-board
    (board-places b)
    (list-replace
     (board-players b)
     player-index
-    (player-update (list-ref (board-players b) player-index) b))))
+    (player-update (list-ref (board-players b) player-index) choice b))))
+
 
 ;;;;;;;;;;;;;;;;;;
 ;; test
 
-(define (null-action p) p)
+(define (null-action p c) p)
 
+(define (shop-action player choice)
+  (msg "shop-action:" choice)
+  (cond
+   ((eq? choice 'buy-potatoes)
+    (player-add-crop player (crop "potatoes")))
+   ((eq? choice 'buy-wheat)
+    (player-add-crop player (crop "wheat")))
+   ((eq? choice 'buy-barley)
+    (player-add-crop player (crop "barley")))
+   (else player)))
+
+(define (build-board)
+  (build-list
+   (lambda (i) (place i 'shop '(buy-wheat buy-barley buy-potatoes) shop-action))
+   (length board-pos-list)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; board 3D stuff
 
 (define rot (vector 0 0 0))
 
-(define board-ori (vector -5 -0.3 2.96))
-(define board-size 0.666666)
+(define board-ori (vector -8.5 0 -6))
+(define board-size 1.6)
 
 (define south (vector 0 0 1))
 (define north (vector 0 0 -1))
@@ -93,16 +153,16 @@
 (define board-pos-list
   (foldl
    (lambda (p r)
-     (cons (vadd (vmul
-                  (cond
-                   ((eqv? p #\n) north)
-                   ((eqv? p #\s) south)
-                   ((eqv? p #\e) east)
-                   ((eqv? p #\w) west))
-                  board-size)
-                 (car r)) r))
+     (append r (list (vadd (vmul
+                            (cond
+                             ((eqv? p #\n) north)
+                             ((eqv? p #\s) south)
+                             ((eqv? p #\e) east)
+                             ((eqv? p #\w) west))
+                            board-size)
+                           (list-ref r (- (length r) 1))))))
    (list board-ori)
-   (string->list "nnneeennnwwwnnneeennneeessseeennneeessseeessswwwssseeessswwwssswwwnnnwwwssswwwnnnwww")))
+   (string->list "eeeeeeeeeeswwwwwwwwseeeeeeesswwwwwwwwseeeeeeeeeesswwwwwwwnnnnnn")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; game
@@ -154,8 +214,81 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; interface
 
-
 (define-fragment-list '())
+
+(define game '())
+(define trigger #f)
+(define display-location 1)
+(define user-player 0)
+(define player-choice 'null)
+
+(define (build-seeds type cost)
+  (horiz
+   (text-view 0 type 20 (layout 'fill-parent 'wrap-content 1 'left 10))
+   (text-view 0 (number->string cost) 20 (layout 'fill-parent 'wrap-content 1 'left 10))
+   (button (make-id (string-append "buy-" type)) "Buy!"
+           20 (layout 'fill-parent 'wrap-content 1 'left 10)
+           (lambda ()
+             (set! player-choice (string->symbol (string-append "buy-" type)))
+             (msg "set player choice to " type)
+             '()))))
+
+(define (build-shop)
+  (update-widget 'linear-layout (get-id "display") 'contents
+                 (list
+                  (build-seeds "Wheat" 200)
+                  (build-seeds "Potatoes" 100)
+                  (build-seeds "Barley" 150)
+                  (button
+                   (make-id "shop-done")
+                   "Finished" 30 (layout 'fill-parent 'wrap-content -1 'left 10)
+                   (lambda ()
+                     (set! trigger #t)
+                     (list (build-display 0)))))))
+
+(define (build-display location)
+  (update-widget 'linear-layout (get-id "display") 'contents
+                 (cond
+                  ((eqv? location 0)
+                   (let ((player (list-ref (board-players game) user-player)))
+                     (msg player)
+                     (list
+                      (text-view 0 (player-name player) 20 (layout 'fill-parent 'wrap-content 1 'left 10))
+                      (text-view 0 (string-append "Money: " (number->string (player-money player)))
+                                 20 (layout 'fill-parent 'wrap-content 1 'left 10))
+
+                      (apply vert
+                             (map
+                              (lambda (crop)
+                                (text-view 0 (crop-type crop)
+                                           20 (layout 'fill-parent 'wrap-content 1 'left 10)))
+                              (player-crops player)))
+
+                      (mbutton 'ready (lambda ()
+                                        (list (build-display display-location))
+                                        )))))
+                  (else
+                   (list
+                    (text-view
+                     0 (string-append "Location: " (number->string location))
+                     20 (layout 'fill-parent 'wrap-content -1 'left 10))
+                    (image-view 0 (string-append "card" (number->string location))
+                                (layout 'wrap-content 'fill-parent 0.2 'left 10))
+
+                    (horiz
+                     (button (make-id (string-append "ready-yes" (number->string location)))
+                             "Yes" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
+                             (lambda ()
+                               (set! trigger #t)
+                               (if (eqv? location 1)
+                                   (list (build-shop))
+                                   (list (build-display 0)))))
+                     (button (make-id (string-append "ready-no" (number->string location)))
+                             "No" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
+                             (lambda ()
+                               (set! trigger #t)
+                               (list (build-display 0)))))))
+                  )))
 
 
 (define-activity-list
@@ -166,20 +299,6 @@
     (layout 'wrap-content 'fill-parent 1 'centre 0)
     (list 0 0 0 0)
     (list
-
-     (linear-layout
-      0 'vertical
-      (layout 'fill-parent 'wrap-content 1 'top 0)
-      (list 155 255 155 255)
-      (list
-       (text-view 0 "Soil Test" 40 (layout 'fill-parent 'wrap-content 1 'left 10))
-       (text-view 0 "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. " 20 (layout 'fill-parent 'wrap-content 1 'left 10))
-       (button 0 "Done" 40 (layout 'fill-parent 'wrap-content 1 'left 10)
-               (lambda () '()))
-
-       )
-      )
-
 
      (nomadic
       (make-id "b2x") (layout 'fill-parent 'fill-parent 0.5 'left 0)
@@ -192,33 +311,37 @@
          (translate (vector 0 0 5))
          (rotate (vector 45 45 0)))
 
-        (define game
+        (set! game
           (game-board
-           (build-list
-            (lambda (i) (place null-action))
-            (length board-pos-list))
+           (build-board)
            (list
-            (player "aa" 0 0 (make-player-view (vector 1 0 0)))
-            (player "bb" 0 0 (make-player-view (vector 0 1 0)))
-            (player "cc" 0 0 (make-player-view (vector 0 0 1)))
-            (player "aa" 0 0 (make-player-view (vector 1 0 1)))
-            (player "aa" 0 0 (make-player-view (vector 1 0 0)))
-            (player "bb" 0 0 (make-player-view (vector 0 1 0)))
-            (player "cc" 0 0 (make-player-view (vector 0 0 1)))
-            (player "aa" 0 0 (make-player-view (vector 1 0 1)))
+            (new-player "Player 1" 0 (make-player-view (vector 1 0 0)))
+            (new-player "Player 2" 0 (make-player-view (vector 0 1 0)))
+            (new-player "Player 3" 0 (make-player-view (vector 0 0 1)))
+            (new-player "Player 4" 0 (make-player-view (vector 1 0 1)))
             )))
 
         (lock-camera (player-view-root (player-view (car (board-players game)))))
-        (define frame 0)
-
         (define next-player 0)
+
+        (define next-move-time (+ (time-now) 1))
 
         (every-frame
          (begin
-           (set! frame (+ frame 1))
-           (when (zero? (modulo frame 20) )
-                 (set! next-player (modulo (+ next-player 1) 8))
-                 (set! game (board-update game next-player)))
+           (if (eqv? next-player user-player)
+               (when trigger
+                     (msg "player update with choice" player-choice)
+                     (set! game (board-update game next-player player-choice))
+                     (set! player-choice 'null)
+                     (set! display-location (player-location (list-ref (board-players game) user-player)))
+                     (set! next-move-time (+ (time-now) 0.5))
+                     (set! next-player (modulo (+ next-player 1) 4))
+                     (set! trigger #f)
+                     )
+               (when (< next-move-time (time-now))
+                     (set! game (board-update game next-player (random-choice game next-player)))
+                     (set! next-move-time (+ next-move-time 0.5))
+                     (set! next-player (modulo (+ next-player 1) 4))))
 
            (set! game (game-update game))
            ))
@@ -226,20 +349,20 @@
         '()))
 
      (linear-layout
-      0 'vertical
-      (layout 'wrap-content 'fill-parent 0.05 'top 20)
-      (list 0 0 0 0)
+      (make-id "display") 'vertical
+      (layout 300 'fill-parent -1 'left 0)
+      (list 155 255 155 255)
       (list
-       (button 0 "Roll dice" 30 (layout 'wrap-content 'wrap-content 1 'left 10)
-               (lambda () '()))
-       (button 0 "One" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
-               (lambda () '()))
-       (button 0 "Two" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
-               (lambda () '()))
-       (button 0 "Three" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
-               (lambda () '()))
+       (button (make-id "start") "Start" 30 (layout 'fill-parent 'fill-parent 0.8 'left 10)
+               (lambda ()
+                 (set! trigger #t)
+                 (list (build-display 0))))
        )
-      )))
+      )
+
+
+
+     ))
    (lambda (activity arg)
      (activity-layout activity))
    (lambda (activity arg) '())
