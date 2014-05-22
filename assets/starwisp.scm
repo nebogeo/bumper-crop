@@ -17,6 +17,9 @@
 
 (alog "hello from starwisp.scm")
 
+(define max-players 4)
+(define move-time 0.5)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; game core
 
@@ -42,43 +45,28 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (player name location points money items crops view)
-  (list name location points money items crops view))
+(define (player name type location points money items crops view)
+  (list name type location points money items crops view))
 
-(define (new-player name location view)
-  (player name location 0 500 '() (list (crop "Cocoa")) view))
+(define (new-player name type location view)
+  (player name type location 0 500 '() (list (crop "Cocoa")) view))
 
 (define (player-name p) (list-ref p 0))
-(define (player-location p) (list-ref p 1))
-(define (player-modify-location p v) (list-replace p 1 v))
-(define (player-points p) (list-ref p 2))
-(define (player-money p) (list-ref p 3))
-(define (player-modify-money p v) (list-replace p 3 v))
-(define (player-items p) (list-ref p 4))
-(define (player-modify-items p v) (list-replace p 4 v))
-(define (player-crops p) (list-ref p 5))
-(define (player-modify-crops p v) (list-replace p 5 v))
-(define (player-view p) (list-ref p 6))
-(define (player-modify-view p v) (list-replace p 6 v))
+(define (player-type p) (list-ref p 1))
+(define (player-location p) (list-ref p 2))
+(define (player-modify-location p v) (list-replace p 2 v))
+(define (player-points p) (list-ref p 3))
+(define (player-money p) (list-ref p 4))
+(define (player-modify-money p v) (list-replace p 4 v))
+(define (player-items p) (list-ref p 5))
+(define (player-modify-items p v) (list-replace p 5 v))
+(define (player-crops p) (list-ref p 6))
+(define (player-modify-crops p v) (list-replace p 6 v))
+(define (player-view p) (list-ref p 7))
+(define (player-modify-view p v) (list-replace p 7 v))
 
 (define (player-add-crop p c)
   (player-modify-crops p (cons c (player-crops p))))
-
-;; pass in whole board in case we need other players
-(define (player-update p choice board)
-  (let* ((new-location
-          (modulo ;; loop
-           (+ (dice-roll) (player-location p))
-           (length (board-places board))))
-         (place (list-ref (board-places board) new-location))
-         (action (place-action place)))
-    (msg "updating" (player-name p))
-    (msg "location: " new-location)
-    (action
-     (player-modify-location
-      (player-modify-view
-       p (player-view-move (player-view p) new-location))
-      new-location) choice)))
 
 (define (player-random-choice p board)
   (let ((place (list-ref (board-places board) (player-location p))))
@@ -97,24 +85,50 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (game-board places players)
+(define (new-game-board places players)
   (list places players))
 
 (define (board-places b) (list-ref b 0))
 (define (board-players b) (list-ref b 1))
 (define (board-modify-players b v) (list-replace b 1 v))
 
+(define (board-modify-player fn b index)
+  (board-modify-players
+   b (list-replace
+      (board-players b)
+      index
+      (fn (list-ref (board-players b) index)))))
+
 (define (random-choice b player-index)
   (player-random-choice (list-ref (board-players b) player-index) b))
 
-(define (board-update b player-index choice)
-  (game-board
-   (board-places b)
-   (list-replace
-    (board-players b)
-    player-index
-    (player-update (list-ref (board-players b) player-index) choice b))))
+(define (board-move-player b player-index dice-roll)
+  (let* ((new-location
+          (modulo ;; loop
+           (+ dice-roll (player-location (list-ref (board-players b) player-index)))
+           (length (board-places b)))))
 
+    (msg "moving" player-index)
+    (msg "to location: " new-location)
+
+    ;; replace player with one in new location
+    (board-modify-player
+     (lambda (p)
+       (player-modify-location
+        (player-modify-view
+         p (player-view-move (player-view p) new-location))
+        new-location))
+     b player-index)))
+
+(define (board-player-choice b player-index choice)
+  (board-modify-player
+   (lambda (p)
+     (let* ((action (place-action (list-ref (board-places b) (player-location p)))))
+       (action p choice)))
+   b player-index))
+
+(define (board-player-location b player-index)
+  (player-location (list-ref (board-players b) player-index)))
 
 ;;;;;;;;;;;;;;;;;;
 ;; test
@@ -136,6 +150,8 @@
   (build-list
    (lambda (i) (place i 'shop '(buy-wheat buy-barley buy-potatoes) shop-action))
    (length board-pos-list)))
+
+;; helpers
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; board 3D stuff
@@ -202,7 +218,7 @@
     (player-view-to p))
    (list-ref board-pos-list dest)))
 
-(define (game-update g)
+(define (game-board-update g)
   (board-modify-players
    g
    (map
@@ -214,17 +230,24 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; interface
 
-(define-fragment-list '())
 
-(define game '())
-(define trigger #f)
-(define display-location 1)
-(define user-player 0)
-(define player-choice 'null)
+;; states are dice, move, play
+(define (game-view) (list 'dice 0))
 
-(define (build-seeds type cost)
+(define (game-view-state s) (list-ref s 0))
+(define (game-view-modify-state s v) (list-replace s 0 v))
+(define (game-view-current-player s) (list-ref s 1))
+(define (game-view-modify-current-player s v) (list-replace s 1 v))
+
+(define (game-view-current-location game-view game)
+  (board-player-location game (game-view-current-player game-view)))
+
+;; hmm just stored for callbacks here
+(define player-choice 'none)
+
+(define (build-seeds name type cost)
   (horiz
-   (text-view 0 type 20 (layout 'fill-parent 'wrap-content 1 'left 10))
+   (text-view 0 name 20 (layout 'fill-parent 'wrap-content 1 'left 10))
    (text-view 0 (number->string cost) 20 (layout 'fill-parent 'wrap-content 1 'left 10))
    (button (make-id (string-append "buy-" type)) "Buy!"
            20 (layout 'fill-parent 'wrap-content 1 'left 10)
@@ -233,63 +256,153 @@
              (msg "set player choice to " type)
              '()))))
 
-(define (build-shop)
+(define (build-shop game-view game-board)
   (update-widget 'linear-layout (get-id "display") 'contents
                  (list
-                  (build-seeds "Wheat" 200)
-                  (build-seeds "Potatoes" 100)
-                  (build-seeds "Barley" 150)
+                  (build-seeds "Wheat" "wheat" 200)
+                  (build-seeds "Potatoes" "potatoes" 100)
+                  (build-seeds "Barley" "barley" 150)
                   (button
                    (make-id "shop-done")
                    "Finished" 30 (layout 'fill-parent 'wrap-content -1 'left 10)
                    (lambda ()
-                     (set! trigger #t)
-                     (list (build-display 0)))))))
+                     (game-player-choice! player-choice)
+                     (render-interface)
+                     )))))
 
-(define (build-display location)
-  (update-widget 'linear-layout (get-id "display") 'contents
-                 (cond
-                  ((eqv? location 0)
-                   (let ((player (list-ref (board-players game) user-player)))
-                     (msg player)
-                     (list
-                      (text-view 0 (player-name player) 20 (layout 'fill-parent 'wrap-content 1 'left 10))
-                      (text-view 0 (string-append "Money: " (number->string (player-money player)))
-                                 20 (layout 'fill-parent 'wrap-content 1 'left 10))
+(define (game-view-build-interface game-view game-board)
+  (let ((player (list-ref (board-players game-board)
+                          (game-view-current-player game-view))))
+    (cond
+     ((eq? (game-view-state game-view) 'dice)
+      (if (eq? (player-type player) 'ai)
+          (ai-turn!)
+          (list
+           (update-widget
+            'linear-layout (get-id "display") 'contents
+            (list
+             (mtext 'dice)
+             (mbutton 'dice-ready
+                      (lambda ()
+                        (game-dice-result! 1)
+                        (game-change-state! 'move)
+                        (render-interface))))))))
 
-                      (apply vert
-                             (map
-                              (lambda (crop)
-                                (text-view 0 (crop-type crop)
-                                           20 (layout 'fill-parent 'wrap-content 1 'left 10)))
-                              (player-crops player)))
 
-                      (mbutton 'ready (lambda ()
-                                        (list (build-display display-location))
-                                        )))))
-                  (else
-                   (list
-                    (text-view
-                     0 (string-append "Location: " (number->string location))
-                     20 (layout 'fill-parent 'wrap-content -1 'left 10))
-                    (image-view 0 (string-append "card" (number->string location))
-                                (layout 'wrap-content 'fill-parent 0.2 'left 10))
+     ((eq? (game-view-state game-view) 'move)
+      (list
+       (update-widget
+        'linear-layout (get-id "display") 'contents
+        (list
+         (text-view 0 (player-name player) 20 (layout 'fill-parent 'wrap-content 1 'left 10))
+         (text-view 0 (string-append "Money: " (number->string (player-money player)))
+                    20 (layout 'fill-parent 'wrap-content 1 'left 10))
 
-                    (horiz
-                     (button (make-id (string-append "ready-yes" (number->string location)))
-                             "Yes" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
-                             (lambda ()
-                               (set! trigger #t)
-                               (if (eqv? location 1)
-                                   (list (build-shop))
-                                   (list (build-display 0)))))
-                     (button (make-id (string-append "ready-no" (number->string location)))
-                             "No" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
-                             (lambda ()
-                               (set! trigger #t)
-                               (list (build-display 0)))))))
-                  )))
+         (apply vert
+                (map
+                 (lambda (crop)
+                   (text-view 0 (crop-type crop)
+                              20 (layout 'fill-parent 'wrap-content 1 'left 10)))
+                 (player-crops player)))
 
+         (mbutton 'ready (lambda ()
+                           (game-change-state! 'play)
+                           (render-interface)))))))
+
+
+     ((eq? (game-view-state game-view) 'play)
+      ;; display card
+      (let ((location (player-location player)))
+        (list
+         (update-widget
+          'linear-layout (get-id "display") 'contents
+          (list
+           (text-view
+            0 (string-append "Player: " (number->string (+ (game-view-current-player game-view) 1)))
+            20 (layout 'fill-parent 'wrap-content -1 'left 10))
+           (text-view
+            0 (string-append "Location: " (number->string location))
+            20 (layout 'fill-parent 'wrap-content -1 'left 10))
+           (image-view 0 (string-append "card" (number->string location))
+                       (layout 'wrap-content 'fill-parent 0.2 'left 10))
+
+           (horiz
+            ;; dispatch to ui for this card
+            (button (make-id (string-append "ready-yes" (number->string location)))
+                    "Yes" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
+                    (lambda ()
+                      ;; build-ui for this card...
+                      ;; all shops (all human)
+                      (list (build-shop game-view game-board))
+                      ))
+
+            ;; maybe not for all cards?
+            (button (make-id (string-append "ready-no" (number->string location)))
+                    "No" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
+                    (lambda ()
+                      (game-next-player!)
+                      (render-interface)
+                      )))))))
+      ))))
+
+;;;
+
+(define game-board '()) ;; has to be built later in gl callback...
+(define game-view (game-view))
+
+;; realm of side effects
+
+(define (render-interface)
+  (game-view-build-interface game-view game-board))
+
+(define (game-change-state! s)
+  (set! game-view (game-view-modify-state game-view s)))
+
+(define (game-dice-result! v)
+  (set! game-board
+        (board-move-player game-board (game-view-current-player game-view) v)))
+
+(define (game-next-player!)
+  (set! game-view
+        (game-view-modify-current-player
+         game-view
+         (modulo (+ (game-view-current-player game-view) 1) max-players)))
+  (msg "next player now" (game-view-current-player game-view))
+  (game-change-state! 'dice))
+
+(define (game-player-choice! choice)
+  (set! game-board (board-player-choice
+                    game-board
+                    (game-view-current-player game-view) choice)))
+
+(define (ai-turn!)
+  (game-dice-result! 1)
+  (let* ((player
+          (list-ref (board-players game-board)
+                    (game-view-current-player game-view)))
+         (choice
+          (player-random-choice
+           player
+           game-board)))
+    (game-player-choice! choice)
+    (msg "ai-turn" (player-name player))
+    (list
+     (update-widget 'linear-layout (get-id "display") 'contents
+                    (list
+                     (mtext 'AI-move)))
+     (toast (string-append (player-name player) " moved"))
+     (delayed (string-append "skip-" (player-name player)) (* 1000 move-time)
+              (lambda ()
+                (msg "hello from " (player-name player))
+                (game-next-player!)
+                (render-interface)
+                )))))
+
+
+
+;;;
+
+(define-fragment-list '())
 
 (define-activity-list
   (activity
@@ -311,40 +424,21 @@
          (translate (vector 0 0 5))
          (rotate (vector 45 45 0)))
 
-        (set! game
-          (game-board
-           (build-board)
-           (list
-            (new-player "Player 1" 0 (make-player-view (vector 1 0 0)))
-            (new-player "Player 2" 0 (make-player-view (vector 0 1 0)))
-            (new-player "Player 3" 0 (make-player-view (vector 0 0 1)))
-            (new-player "Player 4" 0 (make-player-view (vector 1 0 1)))
-            )))
+        (set! game-board
+              (new-game-board
+               (build-board)
+               (list
+                (new-player "Player 1" 'human 0 (make-player-view (vector 1 0 0)))
+                (new-player "Player 2" 'ai 0 (make-player-view (vector 0 1 0)))
+                (new-player "Player 3" 'ai 0 (make-player-view (vector 0 0 1)))
+                (new-player "Player 4" 'ai 0 (make-player-view (vector 1 0 1)))
+                )))
 
-        (lock-camera (player-view-root (player-view (car (board-players game)))))
-        (define next-player 0)
+        (lock-camera (player-view-root (player-view (car (board-players game-board)))))
 
-        (define next-move-time (+ (time-now) 1))
+        (define next-move-time -1)
 
-        (every-frame
-         (begin
-           (if (eqv? next-player user-player)
-               (when trigger
-                     (msg "player update with choice" player-choice)
-                     (set! game (board-update game next-player player-choice))
-                     (set! player-choice 'null)
-                     (set! display-location (player-location (list-ref (board-players game) user-player)))
-                     (set! next-move-time (+ (time-now) 0.5))
-                     (set! next-player (modulo (+ next-player 1) 4))
-                     (set! trigger #f)
-                     )
-               (when (< next-move-time (time-now))
-                     (set! game (board-update game next-player (random-choice game next-player)))
-                     (set! next-move-time (+ next-move-time 0.5))
-                     (set! next-player (modulo (+ next-player 1) 4))))
-
-           (set! game (game-update game))
-           ))
+        (every-frame (set! game-board (game-board-update game-board)))
 
         '()))
 
@@ -355,11 +449,10 @@
       (list
        (button (make-id "start") "Start" 30 (layout 'fill-parent 'fill-parent 0.8 'left 10)
                (lambda ()
-                 (set! trigger #t)
-                 (list (build-display 0))))
+                 (game-change-state! 'dice)
+                 (render-interface)))
        )
       )
-
 
 
      ))
