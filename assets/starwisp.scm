@@ -103,6 +103,9 @@
 (define (board-players b) (list-ref b 1))
 (define (board-modify-players b v) (list-replace b 1 v))
 
+(define (board-player-place b p)
+  (list-ref (board-places b) (- (player-location p) 1)))
+
 (define (board-modify-player fn b index)
   (board-modify-players
    b (list-replace
@@ -131,8 +134,7 @@
 (define (board-player-choice b player-index choice)
   (board-modify-player
    (lambda (p)
-     (let ((action (place-action (list-ref (board-places b) (- (player-location p) 1)))))
-       (msg "running action with" choice)
+     (let ((action (place-action (board-player-place b p))))
        (action p choice)))
    b player-index))
 
@@ -471,7 +473,12 @@
         (game-view-modify-current-player
          game-view
          (modulo (+ (game-view-current-player game-view) 1) max-players)))
+
   (msg "next player now" (game-view-current-player game-view))
+  (lock-camera (player-view-root
+                (player-view (list-ref (board-players game-board)
+                                       (game-view-current-player game-view)))))
+
   (game-change-state! 'dice))
 
 (define (game-player-choice! choice)
@@ -494,12 +501,13 @@
      (update-widget 'linear-layout (get-id "display") 'contents
                     (list
                      (mtext 'AI-move)))
-     (toast (string-append (player-name player) " moved"))
-     (delayed (string-append "skip-" (player-name player)) (* 1000 move-time)
+     (delayed (string-append "skip-" (player-name player)) (* 1000 move-time 2)
               (lambda ()
-                (msg "hello from " (player-name player))
                 (game-next-player!)
-                (render-interface)
+                (append
+                 (render-interface)
+                 (list
+                  (toast (string-append (player-name player) " did..." (symbol->string choice)))))
                 )))))
 
 
@@ -535,7 +543,7 @@
                 (new-player "Player 1" 'human 0 (make-player-view (vector 1 0 0)))
                 (new-player "Player 2" 'ai 0 (make-player-view (vector 0 1 0)))
                 (new-player "Player 3" 'ai 0 (make-player-view (vector 0 0 1)))
-                (new-player "Player 4" 'ai 0 (make-player-view (vector 1 0 1)))
+                (new-player "Player 4" 'human 0 (make-player-view (vector 1 0 1)))
                 )))
 
         (lock-camera (player-view-root (player-view (car (board-players game-board)))))
