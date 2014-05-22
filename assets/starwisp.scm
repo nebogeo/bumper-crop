@@ -74,6 +74,9 @@
 (define (player-add-item p c)
   (player-modify-items p (cons c (player-items p))))
 
+(define (player-add-money p v)
+  (player-modify-money p (+ (player-modify-view p) v)))
+
 (define (player-random-choice p board)
   (let ((place (list-ref (board-places board) (player-location p))))
     (if (null? (place-choices place))
@@ -116,9 +119,6 @@
            (+ dice-roll (player-location (list-ref (board-players b) player-index)))
            (length (board-places b)))))
 
-    (msg "moving" player-index)
-    (msg "to location: " new-location)
-
     ;; replace player with one in new location
     (board-modify-player
      (lambda (p)
@@ -131,7 +131,8 @@
 (define (board-player-choice b player-index choice)
   (board-modify-player
    (lambda (p)
-     (let* ((action (place-action (list-ref (board-places b) (player-location p)))))
+     (let ((action (place-action (list-ref (board-places b) (- (player-location p) 1)))))
+       (msg "running action with" choice)
        (action p choice)))
    b player-index))
 
@@ -238,13 +239,35 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; game code
 
+;; hmm just stored for callbacks here
+(define player-choice 'none)
+
+
+(define (shop-action player choice)
+  (msg "shop-action:" choice)
+  (cond
+   ((eq? choice 'buy-potatoes)
+    (player-add-crop player (crop "potatoes")))
+   ((eq? choice 'buy-wheat)
+    (player-add-crop player (crop "wheat")))
+   ((eq? choice 'buy-barley)
+    (player-add-crop player (crop "barley")))
+   (else player)))
+
+(define (inherit-field-action player choice)
+  (player-add-item player (item 'field)))
+
+(define (tiger-attack-action player choice)
+  (player-add-money player 100))
+
+
 (define (build-board)
   (list
    (place 0 'shop '(buy-wheat buy-barley buy-potatoes) shop-action) ; 1
    (place 1 'another-go '() null-action) ; 2
    (place 2 'shop '(buy-wheat buy-barley buy-potatoes) shop-action) ; 3
    (place 2 'inherit-field '() inherit-field-action) ; 4
-   (place 4 'empty '() null-action) ; 5
+   (place 4 'tiger-attack '() tiger-attack-action) ; 5
    (place 5 'empty '() null-action) ; 6
    (place 6 'empty '() null-action) ; 7
    (place 7 'empty '() null-action) ; 8
@@ -300,24 +323,6 @@
    (place 57 'empty '() null-action) ; 58
    (place 58 'empty '() null-action) ; 59
    (place 59 'empty '() null-action))) ; 60
-
-;; hmm just stored for callbacks here
-(define player-choice 'none)
-
-
-(define (shop-action player choice)
-  (msg "shop-action:" choice)
-  (cond
-   ((eq? choice 'buy-potatoes)
-    (player-add-crop player (crop "potatoes")))
-   ((eq? choice 'buy-wheat)
-    (player-add-crop player (crop "wheat")))
-   ((eq? choice 'buy-barley)
-    (player-add-crop player (crop "barley")))
-   (else player)))
-
-(define (inherit-field-action player choice)
-  (player-add-item player (item 'field)))
 
 (define (build-seeds name type cost)
   (horiz
