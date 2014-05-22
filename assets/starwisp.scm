@@ -43,6 +43,9 @@
 (define (crop-tasks c) (list-ref c 2))
 (define (crop-modify-tasks c v) (list-replace c 2 v))
 
+(define (item type) (list type))
+(define (item-type i) (list-ref 0 i))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (player name type location points money items crops view)
@@ -68,9 +71,14 @@
 (define (player-add-crop p c)
   (player-modify-crops p (cons c (player-crops p))))
 
+(define (player-add-item p c)
+  (player-modify-items p (cons c (player-items p))))
+
 (define (player-random-choice p board)
   (let ((place (list-ref (board-places board) (player-location p))))
-    (choose (place-choices place))))
+    (if (null? (place-choices place))
+        'null
+        (choose (place-choices place)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -131,25 +139,9 @@
   (player-location (list-ref (board-players b) player-index)))
 
 ;;;;;;;;;;;;;;;;;;
-;; test
+;; game code
 
 (define (null-action p c) p)
-
-(define (shop-action player choice)
-  (msg "shop-action:" choice)
-  (cond
-   ((eq? choice 'buy-potatoes)
-    (player-add-crop player (crop "potatoes")))
-   ((eq? choice 'buy-wheat)
-    (player-add-crop player (crop "wheat")))
-   ((eq? choice 'buy-barley)
-    (player-add-crop player (crop "barley")))
-   (else player)))
-
-(define (build-board)
-  (build-list
-   (lambda (i) (place i 'shop '(buy-wheat buy-barley buy-potatoes) shop-action))
-   (length board-pos-list)))
 
 ;; helpers
 
@@ -242,8 +234,90 @@
 (define (game-view-current-location game-view game)
   (board-player-location game (game-view-current-player game-view)))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; game code
+
+(define (build-board)
+  (list
+   (place 0 'shop '(buy-wheat buy-barley buy-potatoes) shop-action) ; 1
+   (place 1 'another-go '() null-action) ; 2
+   (place 2 'shop '(buy-wheat buy-barley buy-potatoes) shop-action) ; 3
+   (place 2 'inherit-field '() inherit-field-action) ; 4
+   (place 4 'empty '() null-action) ; 5
+   (place 5 'empty '() null-action) ; 6
+   (place 6 'empty '() null-action) ; 7
+   (place 7 'empty '() null-action) ; 8
+   (place 8 'empty '() null-action) ; 9
+   (place 9 'empty '() null-action) ; 10
+   (place 10 'empty '() null-action) ; 11
+   (place 11 'empty '() null-action) ; 12
+   (place 12 'empty '() null-action) ; 13
+   (place 13 'empty '() null-action) ; 14
+   (place 14 'empty '() null-action) ; 15
+   (place 15 'empty '() null-action) ; 16
+   (place 16 'empty '() null-action) ; 17
+   (place 17 'empty '() null-action) ; 18
+   (place 18 'empty '() null-action) ; 19
+   (place 19 'empty '() null-action) ; 20
+   (place 20 'empty '() null-action) ; 21
+   (place 21 'empty '() null-action) ; 22
+   (place 22 'empty '() null-action) ; 23
+   (place 23 'empty '() null-action) ; 24
+   (place 24 'empty '() null-action) ; 25
+   (place 25 'empty '() null-action) ; 26
+   (place 26 'empty '() null-action) ; 27
+   (place 27 'empty '() null-action) ; 28
+   (place 28 'empty '() null-action) ; 29
+   (place 29 'empty '() null-action) ; 30
+   (place 30 'empty '() null-action) ; 31
+   (place 31 'empty '() null-action) ; 32
+   (place 32 'empty '() null-action) ; 33
+   (place 33 'empty '() null-action) ; 34
+   (place 34 'empty '() null-action) ; 35
+   (place 35 'empty '() null-action) ; 36
+   (place 36 'empty '() null-action) ; 37
+   (place 37 'empty '() null-action) ; 38
+   (place 38 'empty '() null-action) ; 39
+   (place 39 'empty '() null-action) ; 40
+   (place 40 'empty '() null-action) ; 41
+   (place 41 'empty '() null-action) ; 42
+   (place 42 'empty '() null-action) ; 43
+   (place 43 'empty '() null-action) ; 44
+   (place 44 'empty '() null-action) ; 45
+   (place 45 'empty '() null-action) ; 46
+   (place 46 'empty '() null-action) ; 47
+   (place 47 'empty '() null-action) ; 48
+   (place 48 'empty '() null-action) ; 49
+   (place 49 'empty '() null-action) ; 50
+   (place 50 'empty '() null-action) ; 51
+   (place 51 'empty '() null-action) ; 52
+   (place 52 'empty '() null-action) ; 53
+   (place 53 'empty '() null-action) ; 54
+   (place 54 'empty '() null-action) ; 55
+   (place 55 'empty '() null-action) ; 56
+   (place 56 'empty '() null-action) ; 57
+   (place 57 'empty '() null-action) ; 58
+   (place 58 'empty '() null-action) ; 59
+   (place 59 'empty '() null-action))) ; 60
+
 ;; hmm just stored for callbacks here
 (define player-choice 'none)
+
+
+(define (shop-action player choice)
+  (msg "shop-action:" choice)
+  (cond
+   ((eq? choice 'buy-potatoes)
+    (player-add-crop player (crop "potatoes")))
+   ((eq? choice 'buy-wheat)
+    (player-add-crop player (crop "wheat")))
+   ((eq? choice 'buy-barley)
+    (player-add-crop player (crop "barley")))
+   (else player)))
+
+(define (inherit-field-action player choice)
+  (player-add-item player (item 'field)))
 
 (define (build-seeds name type cost)
   (horiz
@@ -267,83 +341,108 @@
                    "Finished" 30 (layout 'fill-parent 'wrap-content -1 'left 10)
                    (lambda ()
                      (game-player-choice! player-choice)
+                     (game-change-state! 'end)
                      (render-interface)
                      )))))
 
-(define (game-view-build-interface game-view game-board)
-  (let ((player (list-ref (board-players game-board)
-                          (game-view-current-player game-view))))
-    (cond
-     ((eq? (game-view-state game-view) 'dice)
-      (if (eq? (player-type player) 'ai)
-          (ai-turn!)
-          (list
-           (update-widget
-            'linear-layout (get-id "display") 'contents
-            (list
-             (mtext 'dice)
-             (mbutton 'dice-ready
-                      (lambda ()
-                        (game-dice-result! 1)
-                        (game-change-state! 'move)
-                        (render-interface))))))))
-
-
-     ((eq? (game-view-state game-view) 'move)
+(define (build-dice-screen game-view game-board player location place)
+  (if (eq? (player-type player) 'ai)
+      (ai-turn!)
       (list
        (update-widget
         'linear-layout (get-id "display") 'contents
         (list
-         (text-view 0 (player-name player) 20 (layout 'fill-parent 'wrap-content 1 'left 10))
-         (text-view 0 (string-append "Money: " (number->string (player-money player)))
-                    20 (layout 'fill-parent 'wrap-content 1 'left 10))
+         (mtext 'dice)
+         (mbutton 'dice-ready
+                  (lambda ()
+                    (msg "making delayed")
+                    (msg "running delayed")
+                    (game-dice-result! 1)
+                    (game-change-state! 'play)
+                    (render-interface))))))))
 
-         (apply vert
-                (map
-                 (lambda (crop)
-                   (text-view 0 (crop-type crop)
-                              20 (layout 'fill-parent 'wrap-content 1 'left 10)))
-                 (player-crops player)))
+(define (build-play-screen game-view game-board player location place)
+  ;; display card
+  (list
+   (update-widget
+    'linear-layout (get-id "display") 'contents
+    (list
+     (text-view
+      0 (string-append "Player: " (number->string (+ (game-view-current-player game-view) 1)))
+      20 (layout 'fill-parent 'wrap-content -1 'left 10))
+     (text-view
+      0 (string-append "Location: " (number->string location))
+      20 (layout 'fill-parent 'wrap-content -1 'left 10))
+     (image-view 0 (string-append "card" (number->string location))
+                 (layout 'wrap-content 'fill-parent 0.2 'left 10))
 
-         (mbutton 'ready (lambda ()
-                           (game-change-state! 'play)
-                           (render-interface)))))))
+     (if (eq? (place-code place) 'shop)
+         (horiz
+          ;; dispatch to ui for this card
+          (button (make-id (string-append "ready-yes" (number->string location)))
+                  "Yes" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
+                  (lambda () (list (build-shop game-view game-board))))
+
+          ;; maybe not for all cards?
+          (button (make-id (string-append "ready-no" (number->string location)))
+                  "No" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
+                  (lambda ()
+                    (game-change-state! 'end)
+                    (render-interface))))
+
+         (horiz
+          ;; dispatch to ui for this card
+          (button (make-id (string-append "ready-ok" (number->string location)))
+                  "Ok" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
+                  (lambda ()
+                    (cond
+                     ((eq? (place-code place) 'another-go)
+                      (game-change-state! 'dice)
+                      (render-interface))
+                     (else
+                      (game-change-state! 'end)
+                      (render-interface))))
+                  )))
 
 
+
+     ))))
+
+(define (build-end-screen game-view game-board player location place)
+  (list
+   (update-widget
+    'linear-layout (get-id "display") 'contents
+    (list
+     (text-view 0 (player-name player) 20 (layout 'fill-parent 'wrap-content 1 'left 10))
+     (text-view 0 (string-append "Money: " (number->string (player-money player)))
+                20 (layout 'fill-parent 'wrap-content 1 'left 10))
+
+     (apply vert
+            (map
+             (lambda (crop)
+               (text-view 0 (crop-type crop)
+                          20 (layout 'fill-parent 'wrap-content 1 'left 10)))
+             (player-crops player)))
+
+     (mbutton 'finished
+              (lambda ()
+                (game-next-player!)
+                (render-interface)))))))
+
+(define (game-view-build-interface game-view game-board)
+  (let* ((player (dbg (list-ref (board-players game-board)
+                           (game-view-current-player game-view))))
+         (location (dbg (player-location player)))
+         (place (if (zero? location) '()
+                    (list-ref (board-places game-board) (- location 1)))))
+    (cond
+     ((eq? (game-view-state game-view) 'dice)
+      (build-dice-screen game-view game-board player location place))
      ((eq? (game-view-state game-view) 'play)
-      ;; display card
-      (let ((location (player-location player)))
-        (list
-         (update-widget
-          'linear-layout (get-id "display") 'contents
-          (list
-           (text-view
-            0 (string-append "Player: " (number->string (+ (game-view-current-player game-view) 1)))
-            20 (layout 'fill-parent 'wrap-content -1 'left 10))
-           (text-view
-            0 (string-append "Location: " (number->string location))
-            20 (layout 'fill-parent 'wrap-content -1 'left 10))
-           (image-view 0 (string-append "card" (number->string location))
-                       (layout 'wrap-content 'fill-parent 0.2 'left 10))
-
-           (horiz
-            ;; dispatch to ui for this card
-            (button (make-id (string-append "ready-yes" (number->string location)))
-                    "Yes" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
-                    (lambda ()
-                      ;; build-ui for this card...
-                      ;; all shops (all human)
-                      (list (build-shop game-view game-board))
-                      ))
-
-            ;; maybe not for all cards?
-            (button (make-id (string-append "ready-no" (number->string location)))
-                    "No" 30 (layout 'fill-parent 'wrap-content 1 'left 10)
-                    (lambda ()
-                      (game-next-player!)
-                      (render-interface)
-                      )))))))
-      ))))
+      (build-play-screen game-view game-board player location place))
+     ((eq? (game-view-state game-view) 'end)
+      (build-end-screen game-view game-board player location place))
+     )))
 
 ;;;
 
