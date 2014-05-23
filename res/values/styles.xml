@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <color name="bg">#aaaaaa</color>
-  <color name="text">#000000</color>
+  <color name="text">#ffffff</color>
   <color name="buttonbg">#ffffff</color>
 
   <style name="StarwispButton" parent="android:style/Widget.Button">
