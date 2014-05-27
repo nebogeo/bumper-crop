@@ -35,7 +35,8 @@
    (list 'irrigate (list "Irrigate" "सींचना"))
    (list 'weed (list "Weed" "निराना"))
    (list 'fertilise (list "Fertilise" "खाद डालना"))
-   (list 'pest (list "Pest" "कीट"))
+   (list 'pests (list "Pest" "कीट"))
    (list 'disease (list "Disease" "रोग"))
+   (list 'finished-crop (list "Finished" ""))
 
 ))

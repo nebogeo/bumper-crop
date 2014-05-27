@@ -64,7 +64,7 @@
   (cond
     ((null? l) #f)
     ((eq? n (car l)) #t)
-    (else (contains (cdr l) n))))
+    (else (contains? (cdr l) n))))
 
 (define (find n l)
   (cond
