@@ -20,6 +20,36 @@
 (define max-players 4)
 (define move-time 0.5)
 
+(define db "/sdcard/bumpercrop/settings.db")
+(db-open db)(setup db "local")
+
+(define settings-entity-id-version 1)
+
+(insert-entity-if-not-exists
+ db "local" "app-settings" "null" settings-entity-id-version
+ (list
+  (ktv "user-id" "varchar" "not set")
+  (ktv "language" "int" 0)
+  (ktv "house-id" "int" 0)
+  (ktv "photo-id" "int" 0)
+  (ktv "current-village" "varchar" "none")))
+
+(define (get-setting-value name)
+  (ktv-get (get-entity db "local" settings-entity-id-version) name))
+
+(define (set-setting! key type value)
+  (update-entity
+   db "local" settings-entity-id-version (list (ktv key type value))))
+
+(define (get/inc-setting key)
+  (let ((r (get-setting-value key)))
+    (set-setting! key "int" (+ r 1))
+    r))
+
+(set! i18n-lang (get-setting-value "language"))
+(msg i18n-lang)
+(msg "heeee")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; game core
 
@@ -30,12 +60,14 @@
   1)
 ;;  (+ 1 (inexact->exact (abs (floor (* (rndf) 6))))))
 
-(define crop-cycle (list 'buy-treat 'plough 'sow))
+(define crop-prepare-buy-treat 1)
+(define crop-prepare-plough 2)
+(define crop-prepare-sow 3)
+
 (define crop-tasks (list 'irrigate 'weed 'fertilise
                          'pest-control 'disease-control))
 
-(define (crop type)
-  (list type 0 '()))
+(define (crop type) (list type 0 '()))
 
 (define (crop-type c) (list-ref c 0))
 (define (crop-stage c) (list-ref c 1))
@@ -43,8 +75,31 @@
 (define (crop-tasks c) (list-ref c 2))
 (define (crop-modify-tasks c v) (list-replace c 2 v))
 
+(define (crop-bought? c) (> (crop-stage c) 0))
+(define (crop-ploughed? c) (> (crop-stage c) 1))
+(define (crop-sown? c) (> (crop-stage c) 2))
+
+(define (crop-set-stage c s)
+  (cond
+   ((eqv? (crop-stage c) (- s 1))
+    (list #t (crop-modify-stage c s)))
+   ((>= (crop-stage c) s)
+    (list #f 'already-done-that))
+   (else
+    (list #f 'crop-not-ready))))
+
+(define (crop-task-complete? c t)
+  (contains? (crop-tasks c) t))
+
+(define (crop-add-task c v)
+  (cond
+   ((< (crop-stage c) crop-prepare-sow)
+    (list #f 'crop-not-ready))
+   (else
+    (list #t (crop-modify-tasks c (cons v (crop-tasks c)))))))
+
 (define (item type) (list type))
-(define (item-type i) (list-ref 0 i))
+(define (item-type i) (list-ref i 0))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -52,7 +107,9 @@
   (list name type location points money items crops view))
 
 (define (new-player name type location view)
-  (player name type location 0 500 '() (list (crop "Cocoa")) view))
+  (player name type location 0 500
+          (list (item 'ox) (item 'ox) (item 'field))
+          (list (crop 'onion) (crop 'potato) (crop 'wheat)) view))
 
 (define (player-name p) (list-ref p 0))
 (define (player-type p) (list-ref p 1))
@@ -75,13 +132,22 @@
   (player-modify-items p (cons c (player-items p))))
 
 (define (player-add-money p v)
-  (player-modify-money p (+ (player-modify-view p) v)))
+  (player-modify-money p (+ (player-money p) v)))
 
 (define (player-random-choice p board)
   (let ((place (list-ref (board-places board) (player-location p))))
     (if (null? (place-choices place))
         'null
         (choose (place-choices place)))))
+
+(define (player-modify-crop fn p cropname)
+  (player-modify-crops
+   p (map
+      (lambda (crop)
+        (if (eq? (crop-type crop) cropname)
+            (fn crop)
+            crop))
+      (player-crops p))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -241,23 +307,34 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; game code
 
-;; hmm just stored for callbacks here
-(define player-choice 'none)
+(define action-success 0)
 
+
+(define (player-update-crop player crop-name value)
+  (player-modify-crop
+   (lambda (crop)
+     (let ((r (crop-set-stage crop crop-prepare-buy-treat)))
+       ;; todo - do something with error
+       (if (car r)
+           (cadr r)
+           (begin
+             (msg "crop error" (cadr r))
+             crop))))
+   player crop-name))
 
 (define (shop-action player choice)
-  (msg "shop-action:" choice)
   (cond
-   ((eq? choice 'buy-potatoes)
-    (player-add-crop player (crop "potatoes")))
+   ((eq? choice 'buy-potato)
+    (player-update-crop player 'potato crop-prepare-buy-treat))
    ((eq? choice 'buy-wheat)
-    (player-add-crop player (crop "wheat")))
-   ((eq? choice 'buy-barley)
-    (player-add-crop player (crop "barley")))
+    (player-update-crop player 'wheat crop-prepare-buy-treat))
+   ((eq? choice 'buy-onion)
+    (player-update-crop player 'onion crop-prepare-buy-treat))
    (else player)))
 
 (define (inherit-field-action player choice)
-  (player-add-item player (item 'field)))
+  (msg "inherit-field-action")
+  (player-add-item player (item "field")))
 
 (define (tiger-attack-action player choice)
   (player-add-money player 100))
@@ -265,9 +342,9 @@
 
 (define (build-board)
   (list
-   (place 0 'shop '(buy-wheat buy-barley buy-potatoes) shop-action) ; 1
+   (place 0 'shop '(buy-wheat buy-onion buy-potato) shop-action) ; 1
    (place 1 'another-go '() null-action) ; 2
-   (place 2 'shop '(buy-wheat buy-barley buy-potatoes) shop-action) ; 3
+   (place 2 'shop '(buy-wheat buy-onion buy-potato) shop-action) ; 3
    (place 2 'inherit-field '() inherit-field-action) ; 4
    (place 4 'tiger-attack '() tiger-attack-action) ; 5
    (place 5 'empty '() null-action) ; 6
@@ -326,26 +403,29 @@
    (place 58 'empty '() null-action) ; 59
    (place 59 'empty '() null-action))) ; 60
 
-(define (build-seeds name type cost)
-  (horiz
-   (text-view 0 name 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
-   (text-view 0 (number->string cost) 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
-   (button (make-id (string-append "buy-" type)) "Buy!"
-           20 (layout 'fill-parent 'wrap-content 1 'centre 10)
-           (lambda ()
-             (set! player-choice (string->symbol (string-append "buy-" type)))
-             (msg "set player choice to " type)
-             '()))))
+;; hmm just stored for callbacks here
+(define player-choice 'none)
+
+(define (build-seeds type cost)
+  (let ((name (mtext-lookup type)))
+    (horiz
+     (text-view 0 name 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
+     (text-view 0 (number->string cost) 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
+     (button (make-id (string-append "buy-" name)) (mtext-lookup 'buy)
+             20 (layout 'fill-parent 'wrap-content 1 'centre 10)
+             (lambda ()
+               (set! player-choice (string->symbol (string-append "buy-" (symbol->string type))))
+               (msg "set player choice to " type)
+               '())))))
 
 (define (build-shop game-view game-board)
   (update-widget 'linear-layout (get-id "left-display") 'contents
                  (list
-                  (build-seeds "Wheat" "wheat" 200)
-                  (build-seeds "Potatoes" "potatoes" 100)
-                  (build-seeds "Barley" "barley" 150)
-                  (button
-                   (make-id "shop-done")
-                   "Finished" 30 (layout 'fill-parent 'wrap-content -1 'centre 10)
+                  (build-seeds 'wheat 200)
+                  (build-seeds 'potato 100)
+                  (build-seeds 'onion 150)
+                  (mbutton
+                   'shop-done
                    (lambda ()
                      (game-player-choice! player-choice)
                      (game-change-state! 'end)
@@ -361,14 +441,11 @@
        (update-widget
         'linear-layout (get-id "display") 'contents
         (list
-         (mtext 'dice)
-         (mbutton 'dice-ready
-                  (lambda ()
-                    (msg "making delayed")
-                    (msg "running delayed")
-                    (game-dice-result! 1)
-                    (game-change-state! 'play)
-                    (render-interface))))))))
+         (mbutton-scale 'dice-ready
+                        (lambda ()
+                          (game-dice-result! 1)
+                          (game-change-state! 'play)
+                          (render-interface))))))))
 
 (define (clear-left-display)
   (update-widget 'linear-layout (get-id "left-display") 'contents '()))
@@ -379,25 +456,16 @@
    (update-widget
     'linear-layout (get-id "left-display") 'contents
     (list
-     (text-view
-      0 (string-append "Player: " (number->string (+ (game-view-current-player game-view) 1)))
-      20 (layout 'fill-parent 'wrap-content -1 'centre 10))
-     (text-view
-      0 (string-append "Location: " (number->string location))
-      20 (layout 'fill-parent 'wrap-content -1 'centre 10))
      (image-view 0 (string-append "card" (number->string location))
                  (layout 'wrap-content 'fill-parent 0.2 'centre 10))
 
      (if (eq? (place-code place) 'shop)
          (horiz
           ;; dispatch to ui for this card
-          (button (make-id (string-append "ready-yes" (number->string location)))
-                  "Yes" 30 (layout 'fill-parent 'wrap-content 1 'centre 10)
-                  (lambda () (list (build-shop game-view game-board))))
+          (mbutton 'card-yes (lambda () (list (build-shop game-view game-board))))
 
           ;; maybe not for all cards?
-          (button (make-id (string-append "ready-no" (number->string location)))
-                  "No" 30 (layout 'fill-parent 'wrap-content 1 'centre 10)
+          (mbutton 'card-no
                   (lambda ()
                     (game-change-state! 'end)
                     (cons
@@ -406,14 +474,14 @@
 
          (horiz
           ;; dispatch to ui for this card
-          (button (make-id (string-append "ready-ok" (number->string location)))
-                  "Ok" 30 (layout 'fill-parent 'wrap-content 1 'centre 10)
+          (mbutton 'card-ok
                   (lambda ()
                     (cond
                      ((eq? (place-code place) 'another-go)
                       (game-change-state! 'dice)
                       (render-interface))
                      (else
+                      (game-player-choice! 'no-choice)
                       (game-change-state! 'end)
                       (cons
                        (clear-left-display)
@@ -424,6 +492,83 @@
 
      ))))
 
+(define (render-crop crop)
+  (append
+   (list
+    (image-view 0 "strip" fillwrap)
+    (text-view
+     0 (string-append
+        (cond
+         ((crop-sown? crop) (mtext-lookup 'growing))
+         ((crop-bought? crop) (mtext-lookup 'preparing))
+         (else (mtext-lookup 'no-crop)))
+        " "
+        (mtext-lookup (crop-type crop)))
+     25 (layout 'wrap-content 'wrap-content 1 'centre 0)))
+
+   (if (zero? (crop-stage crop))
+       '()
+       (list
+        (if (not (crop-sown? crop))
+            (horiz
+             (vert
+              (image-view 0 (if (crop-bought? crop) "buy_icon" "buy_icon_grey")
+                          (layout 'wrap-content 'fill-parent 1 'centre 2))
+              (text-view 0 (mtext-lookup 'buy) 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
+             (vert
+              (image-view 0 (if (crop-ploughed? crop) "plough_icon" "plough_icon_grey")
+                          (layout 'wrap-content 'fill-parent 1 'centre 2))
+              (text-view 0 (mtext-lookup 'plough) 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
+             (vert
+              (image-view 0 "sow_icon_grey"
+                          (layout 'wrap-content 'fill-parent 1 'centre 2))
+              (text-view 0 (mtext-lookup 'sow) 15 (layout 'wrap-content 'wrap-content 1 'centre 2))))
+            (horiz
+             (vert
+              (image-view 0 (if (crop-task-complete 'irrigate) "irrigate_icon" "irrigate_icon_grey")
+                          (layout 'wrap-content 'wrap-content 1 'centre 2))
+              (text-view 0 (mtext-lookup 'irrigate) 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
+             (vert
+              (image-view 0 (if (crop-task-complete 'weed) "weed_icon" "weed_icon_grey")
+                          (layout 'wrap-content 'wrap-content 1 'centre 2))
+              (text-view 0 (mtext-lookup 'weed) 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
+             (vert
+              (image-view 0 (if (crop-task-complete 'fertilise) "fertilise_icon" "fertilise_icon_grey")
+                          (layout 'wrap-content 'wrap-content 1 'centre 2))
+              (text-view 0 (mtext-lookup 'fertilise) 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
+             (vert
+              (image-view 0 (if (crop-task-complete 'pest) "pest_icon" "pest_icon_grey")
+                          (layout 'wrap-content 'wrap-content 1 'centre 2))
+              (text-view 0 (mtext-lookup 'pests) 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
+             (vert
+              (image-view 0 (if (crop-task-complete 'disease) "disease_icon" "disease_icon_grey")
+                          (layout 'wrap-content 'wrap-content 1 'centre 2))
+              (text-view 0 (mtext-lookup 'disease) 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))))))))
+
+(define (item-type-to-image type)
+  (cond
+   ((eq? type 'ox) "ox_item")
+   ((eq? type 'bucket) "bucket_item")
+   ((eq? type 'bird) "bird_item")
+   ((eq? type 'lottery) "lottery_item")
+   ((eq? type 'mortgage) "mortgage_item")
+   ((eq? type 'rainwater) "rainwater_item")
+   ((eq? type 'solar) "solar_item")
+   ((eq? type 'field) "field_item")
+   ((eq? type 'tractor) "tractor_item")))
+
+(define (render-items items)
+  (apply
+   horiz
+   (map
+    (lambda (item)
+      (msg item)
+      (dbg (image-view
+            0 (item-type-to-image (item-type item))
+            (layout 'fill-parent 'wrap-content 1 'centre 2))))
+    items)))
+
+
 (define (build-end-screen game-view game-board player location place)
   (list
    (update-widget
@@ -432,75 +577,23 @@
      (image-view 0 "strip" fillwrap)
      (horiz
       (text-view 0 (player-name player) 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
-      (text-view 0 (string-append "Money: " (number->string (player-money player)) "r")
+      (text-view 0 (string-append (mtext-lookup 'money) ": Rs" (number->string (player-money player)))
                  20 (layout 'fill-parent 'wrap-content 1 'centre 10)))
-     (image-view 0 "strip" fillwrap)
-     (text-view 0 "Preparing onions" 25 (layout 'wrap-content 'wrap-content 1 'centre 0))
-     (horiz
-      (vert
-       (image-view 0 "buy_icon" (layout 'wrap-content 'fill-parent 1 'centre 2))
-       (text-view 0 "Buy" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "plough_icon" (layout 'wrap-content 'fill-parent 1 'centre 2))
-       (text-view 0 "Plough" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "sow_icon_grey" (layout 'wrap-content 'fill-parent 1 'centre 2))
-       (text-view 0 "Sow" 15 (layout 'wrap-content 'wrap-content 1 'centre 2))))
 
      (image-view 0 "strip" fillwrap)
-
-     (text-view 0 "Growing potatoes" 25 (layout 'wrap-content 'wrap-content 1 'centre 2))
-     (horiz
-      (vert
-       (image-view 0 "irrigate_icon" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Irrigate" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "weed_icon_grey" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Weed" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "fertilise_icon" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Fertilise" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "pest_icon" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Pests" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "disease_icon_grey" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Disease" 15 (layout 'wrap-content 'wrap-content 1 'centre 2))))
-
-     (image-view 0 "strip" fillwrap)
-
-     (text-view 0 "Growing wheat" 25 (layout 'wrap-content 'wrap-content 1 'centre 2))
-     (horiz
-      (vert
-       (image-view 0 "irrigate_icon" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Irrigate" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "weed_icon_grey" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Weed" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "fertilise_icon_grey" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Fertilise" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "pest_icon_grey" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Pests" 15 (layout 'wrap-content 'wrap-content 1 'centre 2)))
-      (vert
-       (image-view 0 "disease_icon" (layout 'wrap-content 'wrap-content 1 'centre 2))
-       (text-view 0 "Disease" 15 (layout 'wrap-content 'wrap-content 1 'centre 2))))
-
-
-     (image-view 0 "strip" fillwrap)
-
-     ;(apply vert
-     ;       (map
-     ;        (lambda (crop)
-     ;          (text-view 0 (crop-type crop)
-     ;                     20 (layout 'fill-parent 'wrap-content 1 'centre 10)))
-     ;        (player-crops player)))
-
-     (mbutton 'finished
-              (lambda ()
-                (game-next-player!)
-                (render-interface)))))))
+     (scroll-view-vert
+      0 (layout 'fill-parent 'wrap-content 1 'centre 0)
+      (list
+       ;;(mtext 'inventory)
+       (apply vert
+              (append
+               (render-items (player-items player))
+               (list (image-view 0 "strip" fillwrap)))
+              (apply append (map render-crop (player-crops player))))))
+      (mbutton 'finished
+               (lambda ()
+                 (game-next-player!)
+                 (render-interface)))))))
 
 (define (game-view-build-interface game-view game-board)
   (let* ((player (dbg (list-ref (board-players game-board)
@@ -516,8 +609,7 @@
        (build-play-screen game-view game-board player location place)
        (build-end-screen game-view game-board player location place)))
      ((eq? (game-view-state game-view) 'end)
-      (build-end-screen game-view game-board player location place))
-     )))
+      (build-end-screen game-view game-board player location place))     )))
 
 ;;;
 
@@ -585,8 +677,57 @@
 (define-fragment-list '())
 
 (define-activity-list
+
   (activity
    "main"
+   (linear-layout
+    0 'horizontal
+    (layout 'wrap-content 'fill-parent 1 'centre 0)
+    (list 0 0 0 0)
+    (list
+     (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
+     (vert
+      (mtitle 'bumpercrop)
+
+      (horiz
+       (vert
+        (mspinner 'language (list 'english 'hindi)
+                  (lambda (c)
+                    (msg "lang setting" c)
+                    (set-setting! "language" "int" c)
+                    (set! i18n-lang c)
+                    '()))
+        (mbutton 'about (lambda (v) '()))
+        (mbutton-scale 'start-game
+                     (lambda ()
+                       (list (start-activity "game" 0 "")))))
+
+       (vert
+        (mspinner 'player-1 (list 'human 'robot) (lambda (v) '()))
+        (mspinner 'player-2 (list 'human 'robot) (lambda (v) '()))
+        (mspinner 'player-3 (list 'human 'robot) (lambda (v) '()))
+        (mspinner 'player-4 (list 'human 'robot) (lambda (v) '())))))
+
+
+     (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
+     )
+    )
+   (lambda (activity arg)
+     (activity-layout activity))
+   (lambda (activity arg)
+     (msg "hello")
+     (msg (get-setting-value "language"))
+     (list
+      (update-widget 'spinner (get-id "language-spinner") 'selection
+                     (get-setting-value "language"))))
+   (lambda (activity) '())
+   (lambda (activity) '())
+   (lambda (activity) '())
+   (lambda (activity) '())
+   (lambda (activity requestcode resultcode) '()))
+
+  (activity
+   "game"
    (linear-layout
     0 'horizontal
     (layout 'wrap-content 'fill-parent 1 'centre 0)
@@ -616,10 +757,10 @@
               (new-game-board
                (build-board)
                (list
-                (new-player "Player 1" 'human 0 (make-player-view (vector 1 0 0)))
-                (new-player "Player 2" 'ai 0 (make-player-view (vector 0 1 0)))
-                (new-player "Player 3" 'ai 0 (make-player-view (vector 0 0 1)))
-                (new-player "Player 4" 'human 0 (make-player-view (vector 1 0 1)))
+                (new-player (mtext-lookup 'player-1) 'human 0 (make-player-view (vector 1 0 0)))
+                (new-player (mtext-lookup 'player-2) 'ai 0 (make-player-view (vector 0 1 0)))
+                (new-player (mtext-lookup 'player-3) 'ai 0 (make-player-view (vector 0 0 1)))
+                (new-player (mtext-lookup 'player-4) 'human 0 (make-player-view (vector 1 0 1)))
                 )))
 
         (lock-camera (player-view-root (player-view (car (board-players game-board)))))
@@ -637,13 +778,10 @@
       (layout 300 'fill-parent -1 'centre 0)
       (list 155 255 155 0)
       (list
-       (button (make-id "start") "Start" 30 (layout 'fill-parent 'fill-parent 0.8 'centre 10)
-               (lambda ()
-                 (game-change-state! 'dice)
-                 (render-interface)))
-       )
-      )
-
+        (mbutton-scale 'start-game
+                       (lambda ()
+                         (game-change-state! 'dice)
+                         (render-interface)))))
 
      ))
    (lambda (activity arg)
@@ -654,7 +792,6 @@
    (lambda (activity) '())
    (lambda (activity) '())
    (lambda (activity requestcode resultcode) '()))
-
 
   )
 

@@ -466,9 +466,7 @@
 
 
 (define i18n-lang 0)
-
-(define i18n-text
-  (list))
+(define i18n-text (list))
 
 (define (mtext-lookup id)
   (define (_ l)
@@ -499,7 +497,7 @@
 (define (mbutton id fn)
   (button (symbol->id id)
           (mtext-lookup id)
-          20 (layout 'fill-parent 'wrap-content -1 'centre 5) fn))
+          40 (layout 'fill-parent 'wrap-content -1 'centre 5) fn))
 
 (define (mbutton-scale id fn)
   (button (symbol->id id)
@@ -579,7 +577,7 @@
   (vert
    (text-view (symbol->id id)
               (mtext-lookup id)
-              30 (layout 'wrap-content 'wrap-content 1 'centre 10))
+              40 (layout 'wrap-content 'wrap-content 1 'centre 10))
    (spinner (make-id (string-append (symbol->string id) "-spinner"))
             (map mtext-lookup types)
             (layout 'wrap-content 'wrap-content 1 'centre 0)

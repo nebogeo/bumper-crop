@@ -60,6 +60,12 @@
       (else (_ (cdr in) (cons (cons (car in) (car out)) (cdr out)) (- c 1)))))
   (reverse (map reverse (_ l '(()) n))))
 
+(define (contains? l n)
+  (cond
+    ((null? l) #f)
+    ((eq? n (car l)) #t)
+    (else (contains (cdr l) n))))
+
 (define (find n l)
   (cond
     ((null? l) #f)
@@ -655,7 +661,7 @@
 (define wrapfill (layout 'wrap-content 'fill-parent -1 'centre 0))
 (define fill (layout 'fill-parent 'fill-parent -1 'centre 0))
 
-(define (spacer size) (space (layout 'fill-parent size 1 'left 0)))
+(define (spacer size) (space (layout 'fill-parent size 1 'centre 0)))
 
 
 (define (horiz . l)
@@ -675,7 +681,7 @@
 (define (vert . l)
   (linear-layout
    0 'vertical
-   (layout 'wrap-content 'wrap-content 1 'centre 0)
+   (layout 'fill-parent 'wrap-content 1 'centre 0)
    (list 0 0 0 0)
    l))
 
@@ -689,7 +695,7 @@
 (define (vert-fill . l)
   (linear-layout
    0 'vertical
-   (layout 'fill-parent 'fill-parent 1 'left 0)
+   (layout 'fill-parent 'fill-parent 1 'centre 0)
    (list 0 0 0 0)
    l))
 
