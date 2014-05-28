@@ -67,7 +67,7 @@
 (define crop-tasks (list 'irrigate 'weed 'fertilise
                          'pest-control 'disease-control))
 
-(define (crop type) (list type 1 '()))
+(define (crop type) (list type 0 '()))
 
 (define (crop-type c) (list-ref c 0))
 (define (crop-stage c) (list-ref c 1))
@@ -79,24 +79,23 @@
 (define (crop-ploughed? c) (> (crop-stage c) 1))
 (define (crop-sown? c) (> (crop-stage c) 2))
 
-(define (crop-set-stage c s)
+(define (crop-check-stage c s)
   (cond
-   ((eqv? (crop-stage c) (- s 1))
-    (list #t (crop-modify-stage c s)))
-   ((>= (crop-stage c) s)
-    (list #f 'already-done-that))
-   (else
-    (list #f 'crop-not-ready))))
+   ((eqv? (crop-stage c) (- s 1)) 'ok)
+   ((>= (crop-stage c) s)'already-done-that)
+   (else 'crop-not-ready)))
 
 (define (crop-task-complete? c t)
   (contains? (crop-tasks c) t))
 
-(define (crop-add-task c v)
+(define (crop-check-task c v)
   (cond
-   ((< (crop-stage c) crop-prepare-sow)
-    (list #f 'crop-not-ready))
-   (else
-    (list #t (crop-modify-tasks c (cons v (crop-tasks c)))))))
+   ((< (crop-stage c) crop-prepare-sow) 'crop-not-ready)
+   ((crop-task-complete? c v) 'already-done-that)
+   (else 'ok)))
+
+(define (crop-add-task c v)
+  (crop-modify-tasks c (cons v (crop-tasks c))))
 
 (define (item type) (list type))
 (define (item-type i) (list-ref i 0))
@@ -127,6 +126,15 @@
 
 (define (player-add-crop p c)
   (player-modify-crops p (cons c (player-crops p))))
+
+(define (player-find-crop p t)
+  (let ((r (foldl
+            (lambda (c r)
+              (if (and (not r) (eq? (crop-type c) t)) c r))
+            #f
+            (player-crops p))))
+    (when (not r) (msg "couldn't find crop" t "in" p))
+    r))
 
 (define (player-add-item p c)
   (player-modify-items p (cons c (player-items p))))
@@ -321,31 +329,121 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; game code
 
-(define action-success 0)
+(define action-toasts '())
+(define (action-toast! player code)
+  (set! action-toasts (cons (list (player-name player) code) action-toasts)))
 
+(define (render-action-toasts!)
+  (let ((r (map
+            (lambda (c)
+              (toast (string-append (car c) ": " (mtext-lookup (cadr c)))))
+            action-toasts)))
+    (set! action-toasts '())
+    r))
 
+(define (player-check-money p v)
+  (cond
+   ((> (player-money p) v) #t)
+   (else (action-toast! p 'not-enough-cash) #f)))
+
+(define (player-check-crop-stage player crop-name value money)
+  (let ((crop (player-find-crop player crop-name)))
+    (msg "ccs" crop value)
+    (if (or (not crop) (not (player-check-money player money)))
+        #f
+        (let ((r (crop-check-stage crop value)))
+          (msg "result" r)
+          (cond
+           ((eq? r 'ok)
+            (cond
+             ;; send success message now
+             ((eq? crop-name 'onion)
+              (cond
+               ((eqv? value 1) (action-toast! player 'bought-onion))
+               ((eqv? value 2) (action-toast! player 'ploughed-onion))
+               ((eqv? value 3) (action-toast! player 'sowed-onion))))
+             ((eq? crop-name 'potato)
+              (cond
+               ((eqv? value 1) (action-toast! player 'bought-potato))
+               ((eqv? value 2) (action-toast! player 'ploughed-potato))
+               ((eqv? value 3) (action-toast! player 'sowed-potato))))
+             ((eq? crop-name 'wheat)
+              (cond
+               ((eqv? value 1) (action-toast! player 'bought-wheat))
+               ((eqv? value 2) (action-toast! player 'ploughed-wheat))
+               ((eqv? value 3) (action-toast! player 'sowed-wheat)))))
+            #t)
+           ;; fail messages
+           ((eq? r 'crop-not-ready)
+            (cond
+             ((eq? crop-name 'onion) (action-toast! player 'onion-not-ready))
+             ((eq? crop-name 'potato) (action-toast! player 'potato-not-ready))
+             ((eq? crop-name 'wheat) (action-toast! player 'wheat-not-ready)))
+            #f)
+           ((eq? r 'already-done-that)
+            (cond
+             ((eq? crop-name 'onion) (action-toast! player 'onion-already-done))
+             ((eq? crop-name 'potato) (action-toast! player 'potato-already-done))
+             ((eq? crop-name 'wheat) (action-toast! player 'wheat-already-done)))
+            #f)
+           (else (msg "error not handled" r) #f))))))
+
+;; unchecked version
 (define (player-update-crop player crop-name value)
   (player-modify-crop
    (lambda (crop)
-     (let ((r (crop-set-stage crop value)))
-       ;; todo - do something with error
-       (if (car r)
-           (cadr r)
-           (begin
-             (msg "crop error" (cadr r))
-             crop))))
+     (crop-modify-stage crop value))
    player crop-name))
+
+(define (player-check-crop-task player crop-name task money)
+  (let ((crop (player-find-crop player crop-name)))
+    (if (or (not crop) (not (player-check-money player money)))
+        #f
+        (let ((r (crop-check-task crop task)))
+          ;; todo - do something with error
+          (cond
+           ((eq? r 'ok)
+            (cond
+             ((eq? crop-name 'onion)
+              (cond
+               ((eqv? task 'irrigated) (action-toast! player 'irrigated-onion))
+               ((eqv? task 'weed) (action-toast! player 'weed-onion))
+               ((eqv? task 'fertilise) (action-toast! player 'fertilise-onion))
+               ((eqv? task 'pests) (action-toast! player 'pests-onion))
+               ((eqv? task 'disease) (action-toast! player 'disease-onion))))
+             ((eq? crop-name 'potato)
+              (cond
+               ((eqv? task 'irrigated) (action-toast! player 'irrigated-potato))
+               ((eqv? task 'weed) (action-toast! player 'weed-potato))
+               ((eqv? task 'fertilise) (action-toast! player 'fertilise-potato))
+               ((eqv? task 'pests) (action-toast! player 'pests-potato))
+               ((eqv? task 'disease) (action-toast! player 'disease-potato))))
+             ((eq? crop-name 'wheat)
+              (cond
+               ((eqv? task 'irrigated) (action-toast! player 'irrigated-wheat))
+               ((eqv? task 'weed) (action-toast! player 'weed-wheat))
+               ((eqv? task 'fertilise) (action-toast! player 'fertilise-wheat))
+               ((eqv? task 'pests) (action-toast! player 'pests-wheat))
+               ((eqv? task 'disease) (action-toast! player 'disease-wheat)))))
+            #t)
+           ((eq? r 'crop-not-ready)
+            (cond
+             ((eq? crop-name 'onion) (action-toast! player 'onion-not-ready))
+             ((eq? crop-name 'potato) (action-toast! player 'potato-not-ready))
+             ((eq? crop-name 'wheat) (action-toast! player 'wheat-not-ready)))
+            #f)
+           ((eq? r 'already-done-that)
+            (cond
+             ((eq? crop-name 'onion) (action-toast! player 'onion-already-done))
+             ((eq? crop-name 'potato) (action-toast! player 'potato-already-done))
+             ((eq? crop-name 'wheat) (action-toast! player 'wheat-already-done)))
+            #f)
+           (else (msg "error not handled" r) #f))))))
 
 (define (player-update-crop-task player crop-name task)
   (player-modify-crop
    (lambda (crop)
-     (let ((r (crop-add-task crop task)))
-       ;; todo - do something with error
-       (if (car r)
-           (cadr r)
-           (begin
-             (msg "crop error" (cadr r))
-             crop))))
+     (crop-add-task crop task))
    player crop-name))
 
 (define (place-interface-yn build-next)
@@ -353,8 +451,8 @@
     (horiz
      ;; dispatch to ui for this card
      (mbutton-scale 'card-yes
-              (lambda ()
-                (list (build-next game-view game-board))))
+                    (lambda ()
+                      (build-next game-view game-board)))
 
      (mbutton-scale 'card-no
               (lambda ()
@@ -422,17 +520,21 @@
   (list
    (place 0 'shop '(wheat onion potato)
           (lambda (player choice)
-            (player-add-money
-             (player-update-crop player choice crop-prepare-buy-treat)
-             -100))
-          (place-interface-yn build-shop))
+            (if (player-check-crop-stage player choice crop-prepare-buy-treat 100)
+                (player-add-money
+                 (player-update-crop player choice crop-prepare-buy-treat)
+                 -100)
+                player))
+          (place-interface-crop))
    (place 1 'another-go '() null-action place-interface-ok)
    (place 2 'shop '(wheat onion potato)
           (lambda (player choice)
-            (player-add-money
-             (player-update-crop player choice crop-prepare-buy-treat)
-             -100))
-          (place-interface-yn build-shop))
+            (if (player-check-crop-stage player choice crop-prepare-buy-treat 100)
+                (player-add-money
+                 (player-update-crop player choice crop-prepare-buy-treat)
+                 -100)
+                player))
+          (place-interface-crop))
    (place 2 'inherit-field '()
           (lambda (player choice) (player-add-item player (item 'field)))
           place-interface-ok)
@@ -441,14 +543,16 @@
           place-interface-ok)
    (place 5 'shop '(wheat onion potato)
           (lambda (player choice)
-            (player-add-money
-             (player-update-crop player choice crop-prepare-buy-treat)
-             -300))
-          (place-interface-yn build-shop))
+            (if (player-check-crop-stage player choice crop-prepare-buy-treat 300)
+                (player-add-money
+                 (player-update-crop player choice crop-prepare-buy-treat)
+                 -300)
+                player))
+          (place-interface-crop))
    (place 6 'buy-tractor '(yes no)
           (lambda (player choice)
-            (if (eq? choice 'yes)
-                (player-add-money (player-add-item player 'tractor) -600)
+            (if (and (eq? choice 'yes) (player-check-money player 600))
+                (player-add-money (player-add-item player (item 'tractor)) -600)
                 player))
           (place-interface-yn (next-yes 'yes)))
    (place 7 'win-lottery '()
@@ -460,37 +564,44 @@
    (place 9 'money-order '() (lambda (player choice) (player-add-money player 500)) place-interface-ok) ; 10
    (place 10 'plough '(wheat onion potato)
           (lambda (player choice)
-            (if (or (player-has-item? player 'ox)
-                    (player-has-item? player 'tractor))
+            (if (and (player-check-crop-stage player choice crop-prepare-plough 0)
+                     (or (player-has-item? player 'ox)
+                         (player-has-item? player 'tractor)))
                 (player-update-crop player choice crop-prepare-plough)
                 player))
           (place-interface-crop))
    (place 11 'plough '(wheat onion potato)
           (lambda (player choice)
-            (player-update-crop
-             (player-add-money player -100)
-             choice crop-prepare-plough))
+            (if (player-check-crop-stage player choice crop-prepare-plough 100)
+                (player-update-crop
+                 (player-add-money player -100)
+                 choice crop-prepare-plough)
+                player))
           (place-interface-crop))
    ;; free turn
    (place 12 'political-camp '() null-action place-interface-ok) ; 13
 
    (place 13 'shop '(wheat onion potato)
           (lambda (player choice)
-            (player-add-money
-             (player-update-crop player choice crop-prepare-buy-treat)
-             -400))
-          (place-interface-yn build-shop))
+            (if (player-check-crop-stage player choice crop-prepare-buy-treat 400)
+                (player-add-money
+                 (player-update-crop player choice crop-prepare-buy-treat)
+                 -400)
+                player))
+          (place-interface-crop))
 
    (place 14 'sow '(wheat onion potato)
           (lambda (player choice)
-            (player-update-crop
-             (player-add-money player -100)
-             choice crop-prepare-sow))
+            (if (player-check-crop-stage player choice crop-prepare-sow 100)
+                (player-update-crop
+                 (player-add-money player -100)
+                 choice crop-prepare-sow)
+                player))
           (place-interface-crop))
 
    (place 15 'buy-rainwater '(yes no)
           (lambda (player choice)
-            (if (eq? choice 'yes)
+            (if (and (eq? choice 'yes) (player-check-money player 500))
                 (player-add-money (player-add-item player (item 'rainwater)) -500)
                 player))
           (place-interface-yn (next-yes 'yes)))
@@ -501,8 +612,9 @@
 
    (place 17 'plough '(wheat onion potato)
           (lambda (player choice)
-            (if (or (player-has-item? player 'ox)
-                    (player-has-item? player 'tractor))
+            (if (and (player-check-crop-stage player choice crop-prepare-plough 0)
+                     (or (player-has-item? player 'ox)
+                         (player-has-item? player 'tractor)))
                 (player-update-crop player choice crop-prepare-plough)
                 player))
           (place-interface-crop))
@@ -512,7 +624,8 @@
 
    (place 19 'sow '(wheat onion potato)
           (lambda (player choice)
-            (if (and (player-has-item? player 'ox)
+            (if (and (player-check-crop-stage player choice crop-prepare-sow 100)
+                     (player-has-item? player 'ox)
                      (player-has-item? player 'bucket))
                 (player-update-crop
                  (player-add-money
@@ -524,7 +637,8 @@
 
    (place 20 'sow '(wheat onion potato)
           (lambda (player choice)
-            (if (player-has-item? player 'bucket)
+            (if (and (player-check-crop-stage player choice crop-prepare-sow 100)
+                     (player-has-item? player 'bucket))
                 (player-update-crop
                  (player-add-money
                   (player-remove-item player 'bucket)
@@ -535,22 +649,27 @@
 
    (place 21 'weed '(wheat onion potato)
           (lambda (player choice)
-            (player-update-crop-task
-             (player-add-money
-              player -100) choice 'weed))
+            (if (player-check-crop-task player choice 'weed 100)
+                (player-update-crop-task
+                 (player-add-money
+                  player -100) choice 'weed)
+                player))
           (place-interface-crop))
 
    (place 22 'plough '(wheat onion potato)
           (lambda (player choice)
-            (if (or (player-has-item? player 'ox)
-                    (player-has-item? player 'tractor))
+            (if (and (player-check-crop-stage player choice crop-prepare-plough 0)
+                     (or (player-has-item? player 'ox)
+                         (player-has-item? player 'tractor)))
                 (player-update-crop player choice crop-prepare-plough)
                 player))
           (place-interface-crop))
 
    (place 23 'irrigate '(wheat onion potato)
           (lambda (player choice)
-            (if (player-has-item? player 'bucket)
+            (if (and
+                 (player-check-crop-task player choice 'irrigate 100)
+                 (player-has-item? player 'bucket))
                 (player-update-crop-task
                  (player-add-money
                   (player-remove-item player 'bucket)
@@ -563,20 +682,25 @@
 
    (place 25 'pest '(wheat onion potato)
           (lambda (player choice)
-            (player-update-crop-task player choice 'bird))
+            (if (player-check-crop-task player choice 'pest 0)
+                (player-update-crop-task player choice 'bird)
+                player))
           (place-interface-crop))
 
    (place 26 'fertilise '(wheat onion potato)
           (lambda (player choice)
-            (player-update-crop-task
-             (if (player-has-item? player 'ox)
-                 player (player-add-money player -100))
-             choice fertilise))
+            (if (player-check-crop-task player choice 'fertilise 100)
+                (player-update-crop-task
+                 (if (player-has-item? player 'ox)
+                     player (player-add-money player -100))
+                 choice fertilise)
+                player))
           (place-interface-crop))
 
    (place 27 'sow '(wheat onion potato)
           (lambda (player choice)
-            (if (player-has-item? player 'bucket)
+            (if (and (player-has-item? player 'bucket)
+                     (player-check-crop-task player choice 'fertilise 0))
                 (player-update-crop
                  (player-remove-item player 'bucket)
                  choice crop-prepare-sow)
@@ -585,10 +709,12 @@
 
    (place 23 'irrigate '(wheat onion potato)
           (lambda (player choice)
-            (if (player-has-item? player 'bucket)
+            (if (and
+                 (player-check-crop-task player choice 'fertilise 0)
+                 (player-has-item? player 'bucket))
                 (player-update-crop-task
-                  (player-remove-item player 'bucket)
-                  choice 'irrigate)
+                 (player-remove-item player 'bucket)
+                 choice 'irrigate)
                 player))
           (place-interface-crop))
 
@@ -644,37 +770,6 @@
    (place 58 'empty '() null-action place-interface-ok) ; 59
    (place 59 'empty '() null-action place-interface-ok))) ; 60
 
-;; hmm just stored for callbacks here
-(define player-choice 'none)
-
-(define (build-seeds type cost)
-  (let ((name (mtext-lookup type)))
-    (horiz
-     (text-view 0 name 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
-     (text-view 0 (number->string cost) 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
-     (button (make-id (string-append "buy-" name)) (mtext-lookup 'buy)
-             20 (layout 'fill-parent 'wrap-content 1 'centre 10)
-             (lambda ()
-               (set! player-choice (string->symbol (string-append "buy-" (symbol->string type))))
-               (msg "set player choice to " type)
-               '())))))
-
-(define (build-shop game-view game-board)
-  (update-widget 'linear-layout (get-id "left-display") 'contents
-                 (list
-                  (build-seeds 'wheat 200)
-                  (build-seeds 'potato 100)
-                  (build-seeds 'onion 150)
-                  (mbutton
-                   'shop-done
-                   (lambda ()
-                     (game-player-choice! player-choice)
-                     (game-change-state! 'end)
-                     (cons
-                      (clear-left-display)
-                      (render-interface))
-                     )))))
-
 (define (build-dice-screen game-view game-board player location place)
   (if (eq? (player-type player) 'ai)
       (ai-turn!)
@@ -698,7 +793,7 @@
     'linear-layout (get-id "left-display") 'contents
     (list
      (image-view 0 (string-append "card" (number->string location))
-                 (layout 'wrap-content 'wrap-content 1 'centre 10))
+                 (layout 'wrap-content 'wrap-content 3 'centre 10))
 
      ((place-interface place) game-view game-board player)
      ))))
@@ -804,7 +899,9 @@
       (mbutton 'finished
                (lambda ()
                  (game-next-player!)
-                 (render-interface)))))))
+                 (cons
+                  (clear-left-display)
+                  (render-interface))))))))
 
 (define (game-view-build-interface game-view game-board)
   (let* ((player (dbg (list-ref (board-players game-board)
@@ -830,7 +927,9 @@
 ;; realm of side effects
 
 (define (render-interface)
-  (game-view-build-interface game-view game-board))
+  (append
+   (game-view-build-interface game-view game-board)
+   (render-action-toasts!)))
 
 (define (game-change-state! s)
   (set! game-view (game-view-modify-state game-view s)))
@@ -875,11 +974,7 @@
      (delayed (string-append "skip-" (player-name player)) (* 1000 move-time 2)
               (lambda ()
                 (game-next-player!)
-                (append
-                 (render-interface)
-                 (list
-                  (toast (string-append (player-name player) " did..." (symbol->string choice)))))
-                )))))
+                (render-interface))))))
 
 
 
@@ -968,7 +1063,7 @@
               (new-game-board
                (build-board)
                (list
-                (new-player (mtext-lookup 'player-1) 'human 10 (make-player-view (vector 1 0 0)))
+                (new-player (mtext-lookup 'player-1) 'human 5 (make-player-view (vector 1 0 0)))
                 (new-player (mtext-lookup 'player-2) 'ai 0 (make-player-view (vector 0 1 0)))
                 (new-player (mtext-lookup 'player-3) 'ai 0 (make-player-view (vector 0 0 1)))
                 (new-player (mtext-lookup 'player-4) 'ai 0 (make-player-view (vector 1 0 1)))
