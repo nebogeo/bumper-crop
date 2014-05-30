@@ -66,6 +66,26 @@
     ((eq? n (car l)) #t)
     (else (contains? (cdr l) n))))
 
+(define (remove-single l n)
+  (cond
+   ((null? l) '())
+   ((eq? (car l) n) (cdr l))
+   (else (cons (car l) (remove-single (cdr l) n)))))
+
+(define (remove-list l nl)
+  (cond
+   ((null? l) '())
+   ((contains? nl (car l))
+    (remove-list (cdr l) (remove-single nl (car l))))
+   (else (cons (car l) (remove-list (cdr l) nl)))))
+
+(define (contains-all-list l nl)
+  (cond
+   ((null? l) (if (null? nl) #t #f))
+   ((contains? nl (car l))
+    (contains-all-list (cdr l) (remove-single nl (car l))))
+   (else (contains-all-list (cdr l) nl))))
+
 (define (find n l)
   (cond
     ((null? l) #f)

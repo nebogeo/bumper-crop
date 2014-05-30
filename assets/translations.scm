@@ -73,6 +73,14 @@
    (list 'disease-wheat (list "Protected wheat from disease" "रोग"))
 
    (list 'not-enough-cash (list "You don't have enough money" ""))
+   (list 'lack-items (list "You don't have the items needed for that" ""))
+   (list 'received-item (list "Received a new item..." ""))
 
+   (list 'rolled-one (list "rolled one"))
+   (list 'rolled-two (list "rolled two"))
+   (list 'rolled-three (list "rolled three"))
+   (list 'rolled-four (list "rolled four"))
+   (list 'rolled-five (list "rolled five"))
+   (list 'rolled-six (list "rolled six"))
 
    ))
