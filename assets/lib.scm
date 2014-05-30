@@ -84,7 +84,7 @@
    ((null? l) (if (null? nl) #t #f))
    ((contains? nl (car l))
     (contains-all-list (cdr l) (remove-single nl (car l))))
-   (else (contains-all-list (cdr l) nl))))
+   (else (contains-all-list (cdr l) nl)))) ""
 
 (define (find n l)
   (cond
@@ -285,7 +285,7 @@
                            1
                            exact-top)))
                  (set! seed (apply-congruence seed))
-                 (inexact->exact (floor (* top (/ seed modulus))))))
+                 (abs (inexact->exact (floor (* top (/ seed modulus)))))))
               ((eq? (cadr args) 'reset)
                (set! seed (coerce (car args))))
               (else
@@ -293,7 +293,14 @@
                (newline))))))))
 
 (define random
-  (random-maker 19781116))  ;; another arbitrarily chosen birthday
+  (random-maker (cadr (time-of-day))))
+
+(msg "random-init")
+(msg (cadr (time-of-day)))
+(msg (random 100))
+(msg (random 100))
+(msg (random 100))
+(msg (random 100))
 
 (define (random-int n)
   (inexact->exact (round (abs (random n)))))
