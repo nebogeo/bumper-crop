@@ -51,7 +51,8 @@
   (if (< n 0) (- n) n))
 
 (define (dice-roll)
-  (+ 1 (random 5)))
+1)
+;;  (+ 1 (random 5)))
 
 (define crop-prepare-buy-treat 1)
 (define crop-prepare-plough 2)
@@ -95,8 +96,8 @@
 
 (define (crop-harvest-payout c multiplier)
   (let ((cycles (+ 3 (length (crop-tasks c)))))
-    (cond
-     (* multiplier
+    (* multiplier
+       (cond
         ((eq? (crop-type c) 'wheat)
          (cond
           ((and (>= cycles 5) (< cycles 7)) 3000)
@@ -373,7 +374,7 @@
               (if (eq? (car c) 'action)
                   (toast (string-append (cadr c) ": " (mtext-lookup (caddr c))))
                   (toast (string-append (cadr c) ": " (mtext-lookup 'harvest) " "
-                                        (number->string (cadr c))))))
+                                        (number->string (caddr c))))))
             action-toasts)))
     (set! action-toasts '())
     r))
@@ -484,14 +485,15 @@
 
 ;; todo seed distribution???
 (define (player-harvest player crop-name)
+  (msg "player-harvest" crop-name player)
   ;; check 5 cycles (two tasks)
   (let ((crop (player-find-crop player crop-name)))
     (if (and crop (>= (length (crop-tasks crop)) 2))
         (let ((payout (crop-harvest-payout
                        crop (player-count-items player 'field))))
           (harvest-toast! player payout)
-          (player-delete-crop (player-add-money player payout) crop-name)
-          player))))
+          (player-delete-crop (player-add-money player payout) crop-name))
+        player)))
 
 (define (player-update-crop-task player crop-name task)
   (player-modify-crop
@@ -656,7 +658,9 @@
              (else
               ;; otherwise it costs 100 each
               (if (player-check-crop-stage player choice crop-prepare-plough 100)
-                  (player-update-crop player choice crop-prepare-plough)
+                  (player-update-crop
+                   (player-add-money player -100)
+                   choice crop-prepare-plough)
                   player))))
           (place-interface-crop))
 
@@ -723,7 +727,9 @@
              (else
               ;; otherwise it costs 100 each
               (if (player-check-crop-stage player choice crop-prepare-plough 100)
-                  (player-update-crop player choice crop-prepare-plough)
+                  (player-update-crop
+                   (player-add-money player -100)
+                   choice crop-prepare-plough)
                   player))))
           (place-interface-crop))
 
@@ -782,7 +788,9 @@
              (else
               ;; otherwise it costs 100 each
               (if (player-check-crop-stage player choice crop-prepare-plough 100)
-                  (player-update-crop player choice crop-prepare-plough)
+                  (player-update-crop
+                   (player-add-money player -100)
+                   choice crop-prepare-plough)
                   player))))
           (place-interface-crop))
 
@@ -829,7 +837,7 @@
    (place 27 'sow '(wheat onion potato)
           (lambda (player choice)
             (if (and (player-has-item? player 'bucket 'bucket)
-                     (player-check-crop-task player choice 'fertilise 0))
+                     (player-check-crop-stage player choice crop-prepare-sow 0))
                 (player-update-crop
                  (player-remove-item player 'bucket 'bucket)
                  choice crop-prepare-sow)
@@ -913,11 +921,11 @@
                 player))
           place-interface-ok)
 
-   (place 37 'federal-planning '(wheat onion potato)
+   (place 37 'federal-planning '()
           (lambda (player choice)
             (player-add-money
              (player-remove-item
-              (if (player-has-item? 'field 'field)
+              (if (player-has-item? player 'field 'field)
                   player
                   (player-delete-crop
                    (player-delete-crop
@@ -1092,6 +1100,8 @@
        (update-widget
         'linear-layout (get-id "display") 'contents
         (list
+         (text-view 0 (player-name player) 40 (layout 'fill-parent 'wrap-content -1 'centre 10))
+         (mtext 'your-turn)
          (mbutton-scale 'dice-ready
                         (lambda ()
                           (let ((d (dice-roll)))
@@ -1251,7 +1261,6 @@
   (set! game-view (game-view-modify-state game-view s)))
 
 (define (game-dice-result! v)
-  (msg "dice result" v)
   (action-toast! (list-ref (board-players game-board)
                            (game-view-current-player game-view))
                  (list-ref (list 'rolled-one 'rolled-two 'rolled-three
@@ -1331,9 +1340,6 @@
 ;;;
 
 (define-fragment-list '())
-
-(msg "daallll")
-(msg (time-of-day))
 
 (define-activity-list
 

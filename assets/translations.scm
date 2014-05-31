@@ -16,7 +16,7 @@
    (list 'finished (list "Finished" "तैयार"))
    (list 'player (list "Player" "खिलाड़ी"))
    (list 'ai-move (list "Robot playing..."))
-
+   (list 'your-turn (list "Your turn!"))
 
    (list 'dice-ready (list "Throw Dice" "पासा फेंक"))
    (list 'card-yes (list "Yes" "हां"))
