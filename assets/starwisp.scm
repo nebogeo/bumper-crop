@@ -51,8 +51,7 @@
   (if (< n 0) (- n) n))
 
 (define (dice-roll)
-1)
-;;  (+ 1 (random 5)))
+  (+ 1 (random 5)))
 
 (define crop-prepare-buy-treat 1)
 (define crop-prepare-plough 2)
@@ -121,7 +120,7 @@
   (list name type location points money items crops skip view))
 
 (define (new-player name type location view)
-  (player name type location 0 500
+  (player name type location 0 3000
           (list 'ox 'ox 'field 'bucket 'bucket)
           (list (crop-ready 'onion) (crop 'potato) (crop 'wheat)) 'none view))
 
@@ -1341,6 +1340,11 @@
 
 (define-fragment-list '())
 
+(set-current! 'player-1 'human)
+(set-current! 'player-2 'ai)
+(set-current! 'player-3 'ai)
+(set-current! 'player-4 'ai)
+
 (define-activity-list
 
   (activity
@@ -1368,10 +1372,18 @@
                          (list (start-activity "game" 0 "")))))
 
        (vert
-        (mspinner 'player-1 (list 'human 'robot) (lambda (v) '()))
-        (mspinner 'player-2 (list 'human 'robot) (lambda (v) '()))
-        (mspinner 'player-3 (list 'human 'robot) (lambda (v) '()))
-        (mspinner 'player-4 (list 'human 'robot) (lambda (v) '())))))
+        (mspinner
+         'player-1 (list 'human 'ai)
+         (lambda (v) (set-current! 'player-1 (list-ref (list 'human 'ai) v)) '()))
+        (mspinner
+         'player-2 (list 'ai 'human)
+         (lambda (v) (set-current! 'player-2 (list-ref (list 'ai 'human) v)) '()))
+        (mspinner
+         'player-3 (list 'ai 'human)
+         (lambda (v) (set-current! 'player-3 (list-ref (list 'ai 'human) v)) '()))
+        (mspinner
+         'player-4 (list 'ai 'human)
+         (lambda (v) (set-current! 'player-4 (list-ref (list 'ai 'human) v)) '())))))
 
 
      (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
@@ -1416,10 +1428,10 @@
               (new-game-board
                (build-board)
                (list
-                (new-player (mtext-lookup 'player-1) 'human 0 (make-player-view (vector 1 0.5 0.5)))
-                (new-player (mtext-lookup 'player-2) 'ai 0 (make-player-view (vector 0.5 1 0.5)))
-                (new-player (mtext-lookup 'player-3) 'ai 0 (make-player-view (vector 0.5 0.5 1)))
-                (new-player (mtext-lookup 'player-4) 'ai 0 (make-player-view (vector 1 0.5 1)))
+                (new-player (mtext-lookup 'player-1) (get-current 'player-1 'human) 0 (make-player-view (vector 1 0.5 0.5)))
+                (new-player (mtext-lookup 'player-2) (get-current 'player-2 'ai) 0 (make-player-view (vector 0.5 1 0.5)))
+                (new-player (mtext-lookup 'player-3) (get-current 'player-3 'ai) 0 (make-player-view (vector 0.5 0.5 1)))
+                (new-player (mtext-lookup 'player-4) (get-current 'player-4 'ai) 0 (make-player-view (vector 1 0.5 1)))
                 )))
 
         (define c (raw-obj board))

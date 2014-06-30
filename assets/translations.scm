@@ -11,6 +11,7 @@
    (list 'player-4 (list "Player 4" "खिलाड़ी 4"))
    (list 'human (list "Human" "मानव"))
    (list 'robot (list "Robot" "रोबोट"))
+   (list 'ai (list "Robot" "रोबोट"))
    (list 'start-game-from-main (list "Start Game" "खेल शुरू"))
    (list 'start-game (list "Start Game" "खेल शुरू"))
    (list 'finished (list "Finished" "तैयार"))
