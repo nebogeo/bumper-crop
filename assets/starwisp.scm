@@ -632,6 +632,25 @@
         (player-check-crop-task player crop-name task 0)
         (player-update-crop-task player task))))))
 
+(define (player-has-water? player)
+  (or
+   (player-has-item? player 'rainwater)
+   (player-has-item? player 'bucket)))
+
+(define (player-remove-water player)
+  (if (player-has-item? player 'rainwater) player
+      (player-remove-item player 'bucket)))
+
+(define (player-has-2water? player)
+  (or
+   (player-has-item? player 'rainwater)
+   (player-has-item? player 'bucket 'bucket)))
+
+(define (player-remove-2water player)
+  (if (player-has-item? player 'rainwater) player
+      (player-remove-item player 'bucket 'bucket)))
+
+
 (define (build-board)
   (list
    ;; needs a freebie
@@ -752,9 +771,9 @@
           (lambda (player choice)
             (if (and
                  (player-check-crop-stage player choice crop-prepare-sow 100)
-                 (player-has-item? player 'bucket))
+                 (player-has-water? player))
                 (player-update-crop
-                 (player-remove-item player 'bucket)
+                 (player-remove-water player)
                  choice crop-prepare-sow)
                 player))
           (place-interface-crop))
@@ -806,9 +825,10 @@
    (place 19 'sow '(wheat onion potato)
           (lambda (player choice)
             (if (and (player-check-crop-stage player choice crop-prepare-sow 0)
-                     (player-has-item? player 'ox 'ox 'bucket))
+                     (player-has-water? player)
+                     (player-has-item? player 'ox 'ox))
                 (player-update-crop
-                 (player-remove-item player 'bucket)
+                 (player-remove-water player)
                  choice crop-prepare-sow)
                 player))
           (place-interface-crop))
@@ -816,9 +836,9 @@
    (place 20 'sow '(wheat onion potato)
           (lambda (player choice)
             (if (and (player-check-crop-stage player choice crop-prepare-sow 0)
-                     (player-has-item? player 'bucket))
+                     (player-has-water? player))
                 (player-update-crop
-                 (player-remove-item player 'bucket)
+                 (player-remove-water player)
                  choice crop-prepare-sow)
                 player))
           (place-interface-crop))
@@ -860,10 +880,10 @@
           (lambda (player choice)
             (if (and
                  (player-check-crop-task player choice 'irrigate 100)
-                 (player-has-item? player 'bucket 'bucket))
+                 (player-has-2water? player))
                 (player-update-crop-task
                  (player-add-money
-                  (player-remove-item player 'bucket 'bucket)
+                  (player-remove-2water player)
                   -100) choice 'irrigate)
                 player))
           (place-interface-crop))
@@ -898,10 +918,10 @@
 
    (place 27 'sow '(wheat onion potato)
           (lambda (player choice)
-            (if (and (player-has-item? player 'bucket 'bucket)
+            (if (and (player-has-2water? player)
                      (player-check-crop-stage player choice crop-prepare-sow 0))
                 (player-update-crop
-                 (player-remove-item player 'bucket 'bucket)
+                 (player-remove-2water player)
                  choice crop-prepare-sow)
                 player))
           (place-interface-crop))
@@ -910,9 +930,9 @@
           (lambda (player choice)
             (if (and
                  (player-check-crop-task player choice 'irrigate 0)
-                 (player-has-item? player 'bucket 'bucket))
+                 (player-has-2water? player))
                 (player-update-crop-task
-                 (player-remove-item player 'bucket 'bucket)
+                 (player-remove-2water player)
                  choice 'irrigate)
                 player))
           (place-interface-crop))
@@ -956,10 +976,10 @@
           (lambda (player choice)
             (if (and
                  (player-check-crop-task player choice 'irrigate 100)
-                 (player-has-item? player 'bucket 'bucket))
+                 (player-has-2water? player))
                 (player-update-crop-task
-                 (player-remove-item
-                  (player-add-money player -100) 'bucket 'bucket)
+                 (player-remove-2water
+                  (player-add-money player -100))
                  choice 'irrigate)
                 player))
           (place-interface-crop))
