@@ -497,12 +497,12 @@
 (define (mbutton id fn)
   (button (symbol->id id)
           (mtext-lookup id)
-          40 (layout 'fill-parent 'wrap-content -1 'centre 5) fn))
+          30 (layout 'fill-parent 'wrap-content -1 'centre 5) fn))
 
 (define (mbutton-scale id fn)
   (button (symbol->id id)
           (mtext-lookup id)
-          40 (layout 'fill-parent 'wrap-content 1 'centre 5) fn))
+          30 (layout 'fill-parent 'wrap-content 1 'centre 5) fn))
 
 (define (mtoggle-button id fn)
   (toggle-button (symbol->id id)

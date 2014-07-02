@@ -57,7 +57,7 @@
 (define crop-prepare-plough 2)
 (define crop-prepare-sow 3)
 
-(define crop-tasks (list 'irrigate 'weed 'fertilise 'pests 'disease))
+(define crop-tasks-list (list 'irrigate 'weed 'fertilise 'pest 'disease))
 
 (define (crop type) (list type 0 '()))
 (define (crop-ready type) (list type 1 '()))
@@ -92,6 +92,19 @@
 
 (define (crop-delete c)
   (crop-modify-tasks (crop-modify-stage c 0) '()))
+
+(define (crop-needed-tasks c)
+  (foldl
+   (lambda (task r)
+     (if (not (crop-task-complete? c task))
+         (cons task r) r))
+   '()
+   crop-tasks-list))
+
+;; returns next stage num or list of needed tasks
+(define (crop-needs c)
+  (if (< (crop-stage c) 2) (+ (crop-stage c) 1)
+      (crop-needed-tasks c)))
 
 (define (crop-harvest-payout c multiplier)
   (let ((cycles (+ 3 (length (crop-tasks c)))))
@@ -253,13 +266,10 @@
      b player-index)))
 
 (define (board-player-choice b player-index choice)
-  (msg "bpc")
-  (msg player-index)
   (board-modify-player
    (lambda (p)
      (msg p)
      (let ((action (place-action (board-player-place b p))))
-       (msg action)
        (action p choice)))
    b player-index))
 
@@ -471,7 +481,7 @@
         (let ((r (crop-check-stage crop value)))
           (cond
            ((eq? r 'ok)
-             ;; send success message now
+            ;; send success message now
             (cond
              ((eqv? value 1) (action-toast! player 'buy crop-name))
              ((eqv? value 2) (action-toast! player 'plough crop-name))
@@ -498,7 +508,6 @@
    (lambda (crop)
      (crop-delete crop))
    player crop-name))
-
 
 (define (player-check-crop-task player crop-name task money)
   (let ((crop (player-find-crop player crop-name)))
@@ -609,6 +618,19 @@
                (render-interface))))))
 
 
+(define (lottery-action player)
+  (let* ((crop (random 3))
+         (need (crop-needs (list-ref (player-crops player) crop)))
+         (crop-name (list-ref (list 'onion 'potato 'wheat) crop)))
+    (msg "lottery:" crop need)
+    (cond
+     ((number? need)
+      (player-check-crop-stage player crop-name need 0)
+      (player-update-crop player crop-name need))
+     (else
+      (let ((task (choose need)))
+        (player-check-crop-task player crop-name task 0)
+        (player-update-crop-task player task))))))
 
 (define (build-board)
   (list
@@ -641,7 +663,7 @@
           place-interface-ok)
 
    (place 4 'tiger-attack '()
-          (lambda (player action)
+          (lambda (player choice)
             (player-modify-skip
              (player-add-money player 100)
              'miss-turn))
@@ -664,7 +686,8 @@
           (place-interface-yn (next-yes 'yes)))
 
    (place 7 'win-lottery '()
-          (lambda (player choice) (player-add-item player 'lottery))
+          (lambda (player choice)
+            (lottery-action player))
           place-interface-ok)
 
    ;; miss turn
@@ -744,7 +767,8 @@
           (place-interface-yn (next-yes 'yes)))
 
    (place 16 'win-lottery '()
-          (lambda (player choice) (player-add-item player 'lottery))
+          (lambda (player choice)
+            (lottery-action player))
           place-interface-ok)
 
    (place 17 'plough '(wheat onion potato)
@@ -1040,7 +1064,8 @@
    (place 46 'electricity-bill '() null-action place-interface-ok)
 
    (place 47 'win-lottery '()
-          (lambda (player choice) (player-add-item player 'lottery))
+          (lambda (player choice)
+            (lottery-action player))
           place-interface-ok)
 
    (place 48 'harvest '(wheat onion potato)
