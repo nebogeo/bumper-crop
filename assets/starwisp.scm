@@ -591,15 +591,13 @@
 
 
 (define (place-interface-ok game-view game-board player)
+  (set-current! 'waiting-for-ok #t)
   ;; cards with no choice - just ok...
   (horiz
    ;; dispatch to ui for this card
    (mbutton 'card-ok
             (lambda ()
-              ;(cond
-              ; ((eq? (place-code place) 'another-go)
-              ;  (game-change-state! 'dice)
-              ;  (render-interface))
+              (set-current! 'waiting-for-ok #f)
               (game-player-choice! 'no-choice)
               (game-change-state! 'end)
               (cons
@@ -1260,10 +1258,20 @@
               (apply append (map render-crop (player-crops player))))))
       (mbutton 'finished
                (lambda ()
-                 (game-next-player!)
-                 (cons
-                  (clear-left-display)
-                  (render-interface))))))))
+                 (cond
+                  ((not (get-current 'waiting-for-ok #f))
+                   (game-next-player!)
+                   (cons
+                    (clear-left-display)
+                    (render-interface)))
+                  (else ;; auto ok if it's waiting
+                   (set-current! 'waiting-for-ok #f)
+                   (game-player-choice! 'no-choice)
+                   (game-change-state! 'end)
+                   (game-next-player!)
+                   (cons
+                    (clear-left-display)
+                    (render-interface))))))))))
 
 (define (game-view-build-interface game-view game-board)
   (let* ((player (dbg (list-ref (board-players game-board)
@@ -1399,10 +1407,13 @@
        (vert
         (mspinner 'language (list 'english 'hindi)
                   (lambda (c)
-                    (msg "lang setting" c)
-                    (set-setting! "language" "int" c)
-                    (set! i18n-lang c)
-                    '()))
+                    (cond
+                     ((not (eqv? c i18n-lang))
+                      (msg "lang setting" c)
+                      (set-setting! "language" "int" c)
+                      (set! i18n-lang c)
+                      (list (start-activity-goto "main" 0 "")))
+                     (else '()))))
         (mbutton 'about (lambda (v) '()))
         (mbutton-scale 'start-game-from-main
                        (lambda ()
