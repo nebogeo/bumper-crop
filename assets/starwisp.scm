@@ -224,7 +224,7 @@
 (define (board-modify-players b v) (list-replace b 1 v))
 
 (define (board-player-place b p)
-  (list-ref (board-places b) (- (player-location p) 1)))
+  (list-ref (board-places b) (player-location p)))
 
 (define (board-modify-player fn b index)
   (board-modify-players
@@ -253,9 +253,13 @@
      b player-index)))
 
 (define (board-player-choice b player-index choice)
+  (msg "bpc")
+  (msg player-index)
   (board-modify-player
    (lambda (p)
+     (msg p)
      (let ((action (place-action (board-player-place b p))))
+       (msg action)
        (action p choice)))
    b player-index))
 
@@ -1152,7 +1156,7 @@
    (update-widget
     'linear-layout (get-id "left-display") 'contents
     (list
-     (image-view 0 (string-append "card" (number->string location))
+     (image-view 0 (string-append "card" (number->string (+ location 1)))
                  (layout 'wrap-content 'wrap-content 3 'centre 10))
 
      ((place-interface place) game-view game-board player)
@@ -1274,11 +1278,12 @@
                     (render-interface))))))))))
 
 (define (game-view-build-interface game-view game-board)
+  (msg "game-view-build-interface")
   (let* ((player (dbg (list-ref (board-players game-board)
                            (game-view-current-player game-view))))
          (location (dbg (player-location player)))
-         (place (if (zero? location) '()
-                    (list-ref (board-places game-board) (- location 1)))))
+         (place (if (< location 0) '()
+                    (list-ref (board-places game-board) location))))
     (cond
      ((eq? (game-view-state game-view) 'dice)
       (build-dice-screen game-view game-board player location place))
@@ -1355,9 +1360,10 @@
       (game-change-state! 'dice))))
 
 (define (game-player-choice! choice)
+  (msg "gpc")
   (set! game-board (board-player-choice
                     game-board
-                    (game-view-current-player game-view) choice)))
+                    (dbg (game-view-current-player game-view)) choice)))
 
 (define (ai-turn!)
   (game-dice-result! (dice-roll))
@@ -1368,16 +1374,18 @@
           (player-random-choice
            player
            game-board)))
+    (msg "here->" choice)
     (game-player-choice! choice)
     (msg "ai-turn" (player-name player))
-    (list
-     (update-widget 'linear-layout (get-id "display") 'contents
-                    (list
-                     (mtext 'AI-move)))
-     (delayed (string-append "skip-" (player-name player)) (* 1000 move-time 2)
-              (lambda ()
-                (game-next-player!)
-                (render-interface))))))
+    (game-change-state! 'end)
+
+    (append
+     (render-interface)
+     (list
+      (delayed (string-append "skip-" (player-name player)) (* 1000 move-time 2)
+               (lambda ()
+                 (game-next-player!)
+                 (render-interface)))))))
 
 
 
@@ -1481,10 +1489,10 @@
                 (new-game-board
                  (build-board)
                  (list
-                  (new-player (mtext-lookup 'player-1) (get-current 'player-1 'human) 0 (make-player-view (vector 1 0.5 0.5)))
-                  (new-player (mtext-lookup 'player-2) (get-current 'player-2 'ai) 0 (make-player-view (vector 0.5 1 0.5)))
-                  (new-player (mtext-lookup 'player-3) (get-current 'player-3 'ai) 0 (make-player-view (vector 0.5 0.5 1)))
-                  (new-player (mtext-lookup 'player-4) (get-current 'player-4 'ai) 0 (make-player-view (vector 1 0.5 1)))
+                  (new-player (mtext-lookup 'player-1) (get-current 'player-1 'human) -1 (make-player-view (vector 1 0.5 0.5)))
+                  (new-player (mtext-lookup 'player-2) (get-current 'player-2 'ai) -1 (make-player-view (vector 0.5 1 0.5)))
+                  (new-player (mtext-lookup 'player-3) (get-current 'player-3 'ai) -1 (make-player-view (vector 0.5 0.5 1)))
+                  (new-player (mtext-lookup 'player-4) (get-current 'player-4 'ai) -1 (make-player-view (vector 1 0.5 1)))
                   )))
 
           (define c (raw-obj board))
