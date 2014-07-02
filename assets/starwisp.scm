@@ -153,13 +153,16 @@
     r))
 
 (define (player-add-item p . args)
-  (action-toast! p 'received-item)
+  (for-each
+   (lambda (item)
+     (action-toast! p 'received-item item))
+   args)
   (player-modify-items
    p (append (player-items p) args)))
 
 (define (player-has-item? p . args)
   (let ((r (contains-all-list (player-items p) args)))
-    (when (not r) (action-toast! p 'lack-items))
+    (when (not r) (action-toast! p 'lack-items 'null))
     r))
 
 (define (player-count-items p n)
@@ -179,6 +182,9 @@
    p (filter (lambda (i) (not (eq? i n))) (player-items p))))
 
 (define (player-add-money p v)
+  (if (> v 0)
+      (action-toast! p 'received-money 'null)
+      (action-toast! p 'lost-money 'null))
   (player-modify-money p (+ (player-money p) v)))
 
 (define (player-random-choice p board)
@@ -361,27 +367,98 @@
 ;; game code
 
 (define action-toasts '())
-(define (action-toast! player code)
-  (set! action-toasts (cons (list 'action (player-name player) code) action-toasts)))
+(define (action-toast! player code crop)
+  (set! action-toasts (cons (list 'action (player-name player) code crop) action-toasts)))
 
-(define (harvest-toast! player payout)
-  (set! action-toasts (cons (list 'harvest (player-name player) payout) action-toasts)))
+(define (harvest-toast! player payout crop)
+  (set! action-toasts (cons (list 'harvest (player-name player) payout crop) action-toasts)))
 
+;; build toasts and icon anims
 (define (render-action-toasts!)
   (let ((r (map
             (lambda (c)
-              (if (eq? (car c) 'action)
-                  (toast (string-append (cadr c) ": " (mtext-lookup (caddr c))))
-                  (toast (string-append (cadr c) ": " (mtext-lookup 'harvest) " "
-                                        (number->string (caddr c))))))
-            action-toasts)))
+              (let ((type (list-ref c 0))
+                    (player (list-ref c 1))
+                    (code (list-ref c 2))
+                    (crop (list-ref c 3)))
+              (if (eq? type 'action)
+                  (toast (string-append
+                          player ": "
+                          (mtext-lookup
+                           (if (eq? crop 'null)
+                               code
+                               (string->symbol (string-append (symbol->string code) "-"
+                                                              (symbol->string crop)))))))
+                  (toast (string-append player ": " (mtext-lookup 'harvest " " (number->string code)))))))
+            action-toasts))
+        (anim ;; search for events to animate
+         (foldl
+          (lambda (c r)
+            (let* ((type (list-ref c 0))
+                   (player (list-ref c 1))
+                   (code (list-ref c 2))
+                   (crop (list-ref c 3))
+                   (icon-id (make-id (string-append
+                                      player "anim-icon"
+                                      (symbol->string code)
+                                      (symbol->string crop)))))
+
+              (cond
+               ((not (null? r)) r) ;; only one per update...
+               ((eq? type 'action)
+                (cond
+                 ((or
+                   ;; crop actions
+                   (eq? code 'buy)
+                   (eq? code 'disease)
+                   (eq? code 'fertilise)
+                   (eq? code 'irrigate)
+                   (eq? code 'pest)
+                   (eq? code 'plough)
+                   (eq? code 'sow)
+                   (eq? code 'weed))
+                  (append
+                   (list
+                    (update-widget 'relative-layout (get-id "game-parent") 'contents-add
+                                   (list (image-view icon-id (string-append (symbol->string code) "_icon")
+                                                     (rlayout 'wrap-content 'wrap-content (list 800 150 0 0) '()))))
+                    (update-widget 'image-view icon-id 'animate
+                                   (list 0 0 400 0))) r)
+                  )
+                 ((eq? code 'received-item)
+                  (append
+                   (list
+                    (update-widget 'relative-layout (get-id "game-parent") 'contents-add
+                                   (list (image-view icon-id (string-append (symbol->string crop) "_item")
+                                                     (rlayout 'wrap-content 'wrap-content (list 800 30 0 0) '()))))
+                    (update-widget 'image-view icon-id 'animate
+                                   (list 0 0 400 0))) r))
+;                 ((or
+;                   ;; cash actions
+;                   (eq? code 'lost-money)
+;                   (eq? code 'received-money))
+;                  (append
+;                   (list
+;                    (update-widget 'relative-layout (get-id "game-parent") 'contents-add
+;                                   (list (image-view icon-id "buy_icon"
+;                                                     (rlayout 'wrap-content 'wrap-content (list 800 20 0 0) '()))))
+;                    (update-widget 'image-view icon-id 'animate
+;                                   (list 0 0 400 0))) r))
+                 (else
+                  (msg "no anim for" type code crop)
+                  r)))
+               (else
+                (msg "no anim for" type code crop)
+                r))))
+          '()
+          action-toasts)))
     (set! action-toasts '())
-    r))
+    (append r anim)))
 
 (define (player-check-money p v)
   (cond
    ((>= (player-money p) v) #t)
-   (else (action-toast! p 'not-enough-cash) #f)))
+   (else (action-toast! p 'not-enough-cash 'null) #f)))
 
 (define (player-check-crop-stage player crop-name value money)
   (let ((crop (player-find-crop player crop-name)))
@@ -390,36 +467,18 @@
         (let ((r (crop-check-stage crop value)))
           (cond
            ((eq? r 'ok)
-            (cond
              ;; send success message now
-             ((eq? crop-name 'onion)
-              (cond
-               ((eqv? value 1) (action-toast! player 'bought-onion))
-               ((eqv? value 2) (action-toast! player 'ploughed-onion))
-               ((eqv? value 3) (action-toast! player 'sowed-onion))))
-             ((eq? crop-name 'potato)
-              (cond
-               ((eqv? value 1) (action-toast! player 'bought-potato))
-               ((eqv? value 2) (action-toast! player 'ploughed-potato))
-               ((eqv? value 3) (action-toast! player 'sowed-potato))))
-             ((eq? crop-name 'wheat)
-              (cond
-               ((eqv? value 1) (action-toast! player 'bought-wheat))
-               ((eqv? value 2) (action-toast! player 'ploughed-wheat))
-               ((eqv? value 3) (action-toast! player 'sowed-wheat)))))
+            (cond
+             ((eqv? value 1) (action-toast! player 'buy crop-name))
+             ((eqv? value 2) (action-toast! player 'plough crop-name))
+             ((eqv? value 3) (action-toast! player 'sow crop-name)))
             #t)
            ;; fail messages
            ((eq? r 'crop-not-ready)
-            (cond
-             ((eq? crop-name 'onion) (action-toast! player 'onion-not-ready))
-             ((eq? crop-name 'potato) (action-toast! player 'potato-not-ready))
-             ((eq? crop-name 'wheat) (action-toast! player 'wheat-not-ready)))
+            (action-toast! player 'not-ready crop-name)
             #f)
            ((eq? r 'already-done-that)
-            (cond
-             ((eq? crop-name 'onion) (action-toast! player 'onion-already-done))
-             ((eq? crop-name 'potato) (action-toast! player 'potato-already-done))
-             ((eq? crop-name 'wheat) (action-toast! player 'wheat-already-done)))
+            (action-toast! player 'already-done crop-name)
             #f)
            (else (msg "error not handled" r) #f))))))
 
@@ -446,39 +505,17 @@
           (cond
            ((eq? r 'ok)
             (cond
-             ((eq? crop-name 'onion)
-              (cond
-               ((eqv? task 'irrigated) (action-toast! player 'irrigated-onion))
-               ((eqv? task 'weed) (action-toast! player 'weed-onion))
-               ((eqv? task 'fertilise) (action-toast! player 'fertilise-onion))
-               ((eqv? task 'pests) (action-toast! player 'pests-onion))
-               ((eqv? task 'disease) (action-toast! player 'disease-onion))))
-             ((eq? crop-name 'potato)
-              (cond
-               ((eqv? task 'irrigated) (action-toast! player 'irrigated-potato))
-               ((eqv? task 'weed) (action-toast! player 'weed-potato))
-               ((eqv? task 'fertilise) (action-toast! player 'fertilise-potato))
-               ((eqv? task 'pests) (action-toast! player 'pests-potato))
-               ((eqv? task 'disease) (action-toast! player 'disease-potato))))
-             ((eq? crop-name 'wheat)
-              (cond
-               ((eqv? task 'irrigated) (action-toast! player 'irrigated-wheat))
-               ((eqv? task 'weed) (action-toast! player 'weed-wheat))
-               ((eqv? task 'fertilise) (action-toast! player 'fertilise-wheat))
-               ((eqv? task 'pests) (action-toast! player 'pests-wheat))
-               ((eqv? task 'disease) (action-toast! player 'disease-wheat)))))
+             ((eqv? task 'irrigate) (action-toast! player 'irrigate crop-name))
+             ((eqv? task 'weed) (action-toast! player 'weed crop-name))
+             ((eqv? task 'fertilise) (action-toast! player 'fertilise crop-name))
+             ((eqv? task 'pests) (action-toast! player 'pest crop-name))
+             ((eqv? task 'disease) (action-toast! player 'disease crop-name)))
             #t)
            ((eq? r 'crop-not-ready)
-            (cond
-             ((eq? crop-name 'onion) (action-toast! player 'onion-not-ready))
-             ((eq? crop-name 'potato) (action-toast! player 'potato-not-ready))
-             ((eq? crop-name 'wheat) (action-toast! player 'wheat-not-ready)))
+            (action-toast! player 'not-ready crop-name)
             #f)
            ((eq? r 'already-done-that)
-            (cond
-             ((eq? crop-name 'onion) (action-toast! player 'onion-already-done))
-             ((eq? crop-name 'potato) (action-toast! player 'potato-already-done))
-             ((eq? crop-name 'wheat) (action-toast! player 'wheat-already-done)))
+            (action-toast! player 'already-done crop-name)
             #f)
            (else (msg "error not handled" r) #f))))))
 
@@ -490,7 +527,7 @@
     (if (and crop (>= (length (crop-tasks crop)) 2))
         (let ((payout (crop-harvest-payout
                        crop (player-count-items player 'field))))
-          (harvest-toast! player payout)
+          (harvest-toast! player payout crop-name)
           (player-delete-crop (player-add-money player payout) crop-name))
         player)))
 
@@ -1260,10 +1297,10 @@
   (set! game-view (game-view-modify-state game-view s)))
 
 (define (game-dice-result! v)
-  (action-toast! (list-ref (board-players game-board)
-                           (game-view-current-player game-view))
-                 (list-ref (list 'rolled-one 'rolled-two 'rolled-three
-                                 'rolled-four 'rolled-five 'rolled-six) (- v 1)))
+  ;(action-toast! (list-ref (board-players game-board)
+  ;                         (game-view-current-player game-view))
+  ;               (list-ref (list 'rolled-one 'rolled-two 'rolled-three
+  ;                               'rolled-four 'rolled-five 'rolled-six) (- v 1)))
   (set! game-board
         (board-move-player game-board (game-view-current-player game-view) v)))
 
@@ -1280,7 +1317,7 @@
     (cond
      ((not (eq? (player-skip player) 'miss-turn)) 0)
      (else
-      (action-toast! player 'misses-turn)
+      (action-toast! player 'misses-turn 'null)
       ;; clear the skip flag
       (set! game-board (board-modify-player
                         (lambda (p)
@@ -1405,39 +1442,44 @@
 
   (activity
    "game"
-   (linear-layout
-    0 'horizontal
-    (layout 'wrap-content 'fill-parent 1 'centre 0)
+   (relative-layout
+    (make-id "game-parent")
+    (rlayout 'wrap-content 'fill-parent (list 0 0 0 0) '())
     (list 0 0 0 0)
     (list
      (linear-layout
-      (make-id "left-display") 'vertical
-      (layout 'wrap-content 'fill-parent -1 'centre 0)
-      (list 155 255 155 0)
-      (list))
+      0 'horizontal
+      (layout 'wrap-content 'fill-parent 1 'centre 0)
+      (list 0 0 0 0)
+      (list
+       (linear-layout
+        (make-id "left-display") 'vertical
+        (layout 'wrap-content 'fill-parent -1 'centre 0)
+        (list 155 255 155 0)
+        (list))
 
-     (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
+       (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
 
-     (nomadic
-      (make-id "b2x") (layout 'fill-parent 'fill-parent 0.5 'centre 0)
-      (lambda ()
-        (display "hello from nomadic callback")(newline)
-        (clear)
+       (nomadic
+        (make-id "b2x") (layout 'fill-parent 'fill-parent 0.5 'centre 0)
+        (lambda ()
+          (display "hello from nomadic callback")(newline)
+          (clear)
 
-        (set! game-board
-              (new-game-board
-               (build-board)
-               (list
-                (new-player (mtext-lookup 'player-1) (get-current 'player-1 'human) 0 (make-player-view (vector 1 0.5 0.5)))
-                (new-player (mtext-lookup 'player-2) (get-current 'player-2 'ai) 0 (make-player-view (vector 0.5 1 0.5)))
-                (new-player (mtext-lookup 'player-3) (get-current 'player-3 'ai) 0 (make-player-view (vector 0.5 0.5 1)))
-                (new-player (mtext-lookup 'player-4) (get-current 'player-4 'ai) 0 (make-player-view (vector 1 0.5 1)))
-                )))
+          (set! game-board
+                (new-game-board
+                 (build-board)
+                 (list
+                  (new-player (mtext-lookup 'player-1) (get-current 'player-1 'human) 0 (make-player-view (vector 1 0.5 0.5)))
+                  (new-player (mtext-lookup 'player-2) (get-current 'player-2 'ai) 0 (make-player-view (vector 0.5 1 0.5)))
+                  (new-player (mtext-lookup 'player-3) (get-current 'player-3 'ai) 0 (make-player-view (vector 0.5 0.5 1)))
+                  (new-player (mtext-lookup 'player-4) (get-current 'player-4 'ai) 0 (make-player-view (vector 1 0.5 1)))
+                  )))
 
-        (define c (raw-obj board))
-        (with-primitive
-         c
-         (texture (load-texture "board.png"))
+          (define c (raw-obj board))
+          (with-primitive
+           c
+           (texture (load-texture "board.png"))
          (hint-unlit))
         (with-camera
          (translate (vector 0 0 5))
@@ -1464,7 +1506,7 @@
                          (game-change-state! 'dice)
                          (render-interface)))))
 
-     ))
+     ))))
    (lambda (activity arg)
      (activity-layout activity))
    (lambda (activity arg) '())
