@@ -574,14 +574,18 @@
                fn))))
 
 (define (mspinner id types fn)
-  (vert
-   (text-view (symbol->id id)
-              (mtext-lookup id)
-              40 (layout 'wrap-content 'wrap-content 1 'centre 10))
-   (spinner (make-id (string-append (symbol->string id) "-spinner"))
-            (map mtext-lookup types)
-            (layout 'wrap-content 'wrap-content 1 'centre 0)
-            (lambda (c) (fn c)))))
+  (linear-layout
+   0 'vertical
+   (layout 'fill-parent 'wrap-content 1 'centre 5)
+   (list 0 0 0 0)
+   (list
+    (text-view (symbol->id id)
+               (mtext-lookup id)
+               20 (layout 'wrap-content 'wrap-content 1 'centre 5))
+    (spinner (make-id (string-append (symbol->string id) "-spinner"))
+             (map mtext-lookup types)
+             (layout 'wrap-content 'wrap-content 1 'centre 0)
+             (lambda (c) (fn c))))))
 
 (define (mspinner-other id types fn)
   (linear-layout

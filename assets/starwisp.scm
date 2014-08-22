@@ -14,7 +14,7 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (define max-players 4)
-(define move-time 0.5)
+(define move-time 1)
 
 (define db "/sdcard/bumpercrop/settings.db")
 (db-open db)(setup db "local")
@@ -178,6 +178,9 @@
     (when (not r) (action-toast! p 'lack-items 'null))
     r))
 
+(define (player-has-item-silent? p . args)
+  (contains-all-list (player-items p) args))
+
 (define (player-count-items p n)
   (define (_ l)
     (cond
@@ -195,9 +198,9 @@
    p (filter (lambda (i) (not (eq? i n))) (player-items p))))
 
 (define (player-add-money p v)
-  (if (> v 0)
-      (action-toast! p 'received-money 'null)
-      (action-toast! p 'lost-money 'null))
+  ;(if (> v 0)
+  ;    (action-toast! p 'received-money 'null)
+  ;    (action-toast! p 'lost-money 'null))
   (player-modify-money p (+ (player-money p) v)))
 
 (define (player-random-choice p board)
@@ -297,18 +300,74 @@
 (define east (vector 1 0 0))
 
 (define board-pos-list
-  (foldl
-   (lambda (p r)
-     (append r (list (vadd (vmul
-                            (cond
-                             ((eqv? p #\n) north)
-                             ((eqv? p #\s) south)
-                             ((eqv? p #\e) east)
-                             ((eqv? p #\w) west))
-                            board-size)
-                           (list-ref r (- (length r) 1))))))
-   (list board-ori)
-   (string->list "eeeeeeeeeeswwwwwwwwseeeeeeesswwwwwwwwseeeeeeeeeesswwwwwwwnnnnnn")))
+  (map
+   (lambda (p)
+     (vadd
+      (vmul
+       (vmul (vector (car p) 0 (cadr p)) (/ 1 1024)) ;; 0->1
+       16)
+      (vector -8.5 0 -7.5)
+      ))  ;; 0->10
+   (list (list 94 92)
+         (list 201 92)
+         (list 299 88)
+(list 411 93)
+(list 520 88)
+(list 606 95)
+(list 681 94)
+(list 769 90)
+(list 867 95)
+(list 965 88)
+(list 959 217)
+(list 865 224)
+(list 768 225)
+(list 678 222)
+(list 596 228)
+(list 505 225)
+(list 399 227)
+(list 294 223)
+(list 192 231)
+(list 206 401)
+(list 317 381)
+(list 422 391)
+(list 520 384)
+(list 620 387)
+(list 713 387)
+(list 816 386)
+(list 917 383)
+(list 963 513)
+(list 878 568)
+(list 782 563)
+(list 688 568)
+(list 605 568)
+(list 531 570)
+(list 462 565)
+(list 389 563)
+(list 314 565)
+(list 233 567)
+(list 180 738)
+(list 289 741)
+(list 365 739)
+(list 449 739)
+(list 538 743)
+(list 615 742)
+(list 692 744)
+(list 769 745)
+(list 827 707)
+(list 897 738)
+(list 967 821)
+(list 877 901)
+(list 743 900)
+(list 593 897)
+(list 452 899)
+(list 336 900)
+(list 205 903)
+(list 75 904)
+(list 76 707)
+(list 75 574)
+(list 77 472)
+(list 77 357)
+(list 81 220))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; game
@@ -403,75 +462,78 @@
                                code
                                (string->symbol (string-append (symbol->string code) "-"
                                                               (symbol->string crop)))))))
-                  (toast (string-append player ": " (mtext-lookup 'harvest " " (number->string code)))))))
+                  (toast (string-append player ": " (mtext-lookup 'harvest) " " (number->string code))))))
             action-toasts))
         (anim ;; search for events to animate
          (foldl
           (lambda (c r)
-            (let* ((type (list-ref c 0))
-                   (player (list-ref c 1))
-                   (code (list-ref c 2))
-                   (crop (list-ref c 3))
-                   (icon-id (make-id (string-append
-                                      player "anim-icon"
-                                      (symbol->string code)
-                                      (symbol->string crop)))))
+            (if (eq? (list-ref c 0) 'harvest)
+                r
+                (let* ((type (list-ref c 0))
+                       (player (list-ref c 1))
+                       (code (list-ref c 2))
+                       (crop (list-ref c 3))
+                       (icon-id (make-id (string-append
+                                          player "anim-icon"
+                                          (symbol->string code)
+                                          (symbol->string crop)))))
 
-              (cond
-               ((not (null? r)) r) ;; only one per update...
-               ((eq? type 'action)
-                (cond
-                 ((or
-                   ;; crop actions
-                   (eq? code 'buy)
-                   (eq? code 'disease)
-                   (eq? code 'fertilise)
-                   (eq? code 'irrigate)
-                   (eq? code 'pest)
-                   (eq? code 'plough)
-                   (eq? code 'sow)
-                   (eq? code 'weed))
-                  (append
-                   (list
-                    (update-widget 'relative-layout (get-id "game-parent") 'contents-add
-                                   (list (image-view icon-id (string-append (symbol->string code) "_icon")
-                                                     (rlayout 'wrap-content 'wrap-content (list 800 150 0 0) '()))))
-                    (update-widget 'image-view icon-id 'animate
-                                   (list 0 0 400 0))) r)
-                  )
-                 ((eq? code 'received-item)
-                  (append
-                   (list
-                    (update-widget 'relative-layout (get-id "game-parent") 'contents-add
-                                   (list (image-view icon-id (string-append (symbol->string crop) "_item")
-                                                     (rlayout 'wrap-content 'wrap-content (list 800 30 0 0) '()))))
-                    (update-widget 'image-view icon-id 'animate
-                                   (list 0 0 400 0))) r))
-;                 ((or
-;                   ;; cash actions
-;                   (eq? code 'lost-money)
-;                   (eq? code 'received-money))
-;                  (append
-;                   (list
-;                    (update-widget 'relative-layout (get-id "game-parent") 'contents-add
-;                                   (list (image-view icon-id "buy_icon"
-;                                                     (rlayout 'wrap-content 'wrap-content (list 800 20 0 0) '()))))
-;                    (update-widget 'image-view icon-id 'animate
-;                                   (list 0 0 400 0))) r))
-                 (else
-                  (msg "no anim for" type code crop)
-                  r)))
-               (else
-                (msg "no anim for" type code crop)
-                r))))
+                  (cond
+                   ((not (null? r)) r) ;; only one per update...
+                   ((eq? type 'action)
+                    (cond
+                     ((or
+                       ;; crop actions
+                       (eq? code 'buy)
+                       (eq? code 'disease)
+                       (eq? code 'fertilise)
+                       (eq? code 'irrigate)
+                       (eq? code 'pest)
+                       (eq? code 'plough)
+                       (eq? code 'sow)
+                       (eq? code 'weed))
+                      (append
+                       (list
+                        (update-widget 'relative-layout (get-id "game-parent") 'contents-add
+                                       (list (image-view icon-id (string-append (symbol->string code) "_icon")
+                                                         (rlayout 'wrap-content 'wrap-content (list 800 150 0 0) '()))))
+                        (update-widget 'image-view icon-id 'animate
+                                       (list 0 0 400 0))) r)
+                      )
+                     ((eq? code 'received-item)
+                      (append
+                       (list
+                        (update-widget 'relative-layout (get-id "game-parent") 'contents-add
+                                       (list (image-view icon-id (string-append (symbol->string crop) "_item")
+                                                         (rlayout 'wrap-content 'wrap-content (list 800 30 0 0) '()))))
+                        (update-widget 'image-view icon-id 'animate
+                                       (list 0 0 400 0))) r))
+                                        ;                 ((or
+                                        ;                   ;; cash actions
+                                        ;                   (eq? code 'lost-money)
+                                        ;                   (eq? code 'received-money))
+                                        ;                  (append
+                                        ;                   (list
+                                        ;                    (update-widget 'relative-layout (get-id "game-parent") 'contents-add
+                                        ;                                   (list (image-view icon-id "buy_icon"
+                                        ;                                                     (rlayout 'wrap-content 'wrap-content (list 800 20 0 0) '()))))
+                                        ;                    (update-widget 'image-view icon-id 'animate
+                                        ;                                   (list 0 0 400 0))) r))
+                     (else
+                      (msg "no anim for" type code crop)
+                      r)))
+                   (else
+                    (msg "no anim for" type code crop)
+                    r)))))
           '()
           action-toasts)))
     (set! action-toasts '())
-    (append r anim)))
+    (append r '()))) ;; turn off anims
 
 (define (player-check-money p v)
   (cond
    ((>= (player-money p) v) #t)
+   ((zero? v) #t)
    (else (action-toast! p 'not-enough-cash 'null) #f)))
 
 (define (player-check-crop-stage player crop-name value money)
@@ -619,35 +681,36 @@
 
 
 (define (lottery-action player)
-  (let* ((crop (random 3))
-         (need (crop-needs (list-ref (player-crops player) crop)))
-         (crop-name (list-ref (list 'onion 'potato 'wheat) crop)))
-    (msg "lottery:" crop need)
-    (cond
-     ((number? need)
-      (player-check-crop-stage player crop-name need 0)
-      (player-update-crop player crop-name need))
-     (else
-      (let ((task (choose need)))
-        (player-check-crop-task player crop-name task 0)
-        (player-update-crop-task player task))))))
+  (let* ((crop (abs (random 2))))
+    (msg "lottery-action random crop is: " crop)
+    (let ((need (crop-needs (list-ref (player-crops player) crop)))
+          (crop-name (list-ref (list 'onion 'potato 'wheat) crop)))
+      (msg "lottery:" crop need)
+      (cond
+       ((number? need)
+        (player-check-crop-stage player crop-name need 0)
+        (player-update-crop player crop-name need))
+       (else
+        (let ((task (choose need)))
+          (player-check-crop-task player crop-name task 0)
+          (player-update-crop-task player crop-name task)))))))
 
 (define (player-has-water? player)
   (or
-   (player-has-item? player 'rainwater)
+   (player-has-item-silent? player 'rainwater)
    (player-has-item? player 'bucket)))
 
 (define (player-remove-water player)
-  (if (player-has-item? player 'rainwater) player
+  (if (player-has-item-silent? player 'rainwater) player
       (player-remove-item player 'bucket)))
 
 (define (player-has-2water? player)
   (or
-   (player-has-item? player 'rainwater)
+   (player-has-item-silent? player 'rainwater)
    (player-has-item? player 'bucket 'bucket)))
 
 (define (player-remove-2water player)
-  (if (player-has-item? player 'rainwater) player
+  (if (player-has-item-silent? player 'rainwater) player
       (player-remove-item player 'bucket 'bucket)))
 
 
@@ -724,14 +787,14 @@
           (lambda (player choice)
             (cond
              ;; if we have a tractor, free and another go
-             ((player-has-item? player 'tractor)
+             ((player-has-item-silent? player 'tractor)
               (if (player-check-crop-stage player choice crop-prepare-plough 0)
                   (player-update-crop
                    (player-modify-skip player 'another-go)
                    choice crop-prepare-plough)
                   player))
              ;; if we have two oxen, it's free
-             ((player-has-item? player 'ox 'ox)
+             ((player-has-item-silent? player 'ox 'ox)
               (if (player-check-crop-stage player choice crop-prepare-plough 0)
                   (player-update-crop player choice crop-prepare-plough)
                   player))
@@ -794,14 +857,14 @@
           (lambda (player choice)
             (cond
              ;; if we have a tractor, free and another go
-             ((player-has-item? player 'tractor)
+             ((player-has-item-silent? player 'tractor)
               (if (player-check-crop-stage player choice crop-prepare-plough 0)
                   (player-update-crop
                    (player-modify-skip player 'another-go)
                    choice crop-prepare-plough)
                   player))
              ;; if we have two oxen, it's free
-             ((player-has-item? player 'ox 'ox)
+             ((player-has-item-silent? player 'ox 'ox)
               (if (player-check-crop-stage player choice crop-prepare-plough 0)
                   (player-update-crop player choice crop-prepare-plough)
                   player))
@@ -856,14 +919,14 @@
           (lambda (player choice)
             (cond
              ;; if we have a tractor, free and another go
-             ((player-has-item? player 'tractor)
+             ((player-has-item-silent? player 'tractor)
               (if (player-check-crop-stage player choice crop-prepare-plough 0)
                   (player-update-crop
                    (player-modify-skip player 'another-go)
                    choice crop-prepare-plough)
                   player))
              ;; if we have two oxen, it's free
-             ((player-has-item? player 'ox 'ox)
+             ((player-has-item-silent? player 'ox 'ox)
               (if (player-check-crop-stage player choice crop-prepare-plough 0)
                   (player-update-crop player choice crop-prepare-plough)
                   player))
@@ -891,7 +954,7 @@
    ;; tractor breaks down
    (place 24 'empty '()
           (lambda (player choice)
-            (if (player-has-item? player 'tractor)
+            (if (player-has-item-silent? player 'tractor)
                 (player-modify-skip player 'miss-turn)
                 player))
           place-interface-ok) ; 20
@@ -1091,7 +1154,7 @@
    (place 48 'harvest '(wheat onion potato)
           (lambda (player choice)
             (cond
-             ((player-has-item? player 'tractor) (player-harvest player choice))
+             ((player-has-item-silent? player 'tractor) (player-harvest player choice))
              ((player-has-item? player 'ox 'ox) (player-harvest player choice))
              (else
               (if (player-check-money player 100)
@@ -1119,7 +1182,7 @@
    (place 51 'harvest '(wheat onion potato)
           (lambda (player choice)
             (cond
-             ((player-has-item? player 'tractor) (player-harvest player choice))
+             ((player-has-item-silent? player 'tractor) (player-harvest player choice))
              ((player-has-item? player 'ox 'ox) (player-harvest player choice))
              (else
               (if (player-check-money player 100)
@@ -1147,7 +1210,7 @@
    (place 55 'harvest '(wheat onion potato)
           (lambda (player choice)
             (cond
-             ((player-has-item? player 'tractor) (player-harvest player choice))
+             ((player-has-item-silent? player 'tractor) (player-harvest player choice))
              ((player-has-item? player 'ox 'ox) (player-harvest player choice))
              (else
               (if (player-check-money player 100)
@@ -1288,44 +1351,48 @@
   (list
    (update-widget
     'linear-layout (get-id "display") 'contents
-    (list
-     (image-view 0 "strip" fillwrap)
-     (horiz
-      (text-view 0 (player-name player) 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
-      (text-view 0 (string-append (mtext-lookup 'money) ": Rs" (number->string (player-money player)))
-                 20 (layout 'fill-parent 'wrap-content 1 'centre 10)))
+    (append
+     (list
+      (image-view 0 "strip" fillwrap)
+      (horiz
+       (text-view 0 (player-name player) 20 (layout 'fill-parent 'wrap-content 1 'centre 10))
+       (text-view 0 (string-append (mtext-lookup 'money) ": Rs" (number->string (player-money player)))
+                  20 (layout 'fill-parent 'wrap-content 1 'centre 10)))
 
-     (image-view 0 "strip" fillwrap)
-     (scroll-view-vert
-      0 (layout 'fill-parent 'wrap-content 1 'centre 0)
-      (list
-       ;;(mtext 'inventory)
-       (apply vert
-              (append
-               (render-items (player-items player))
-               (list (image-view 0 "strip" fillwrap)))
-              (apply append (map render-crop (player-crops player))))))
-      (mbutton 'finished
-               (lambda ()
-                 (cond
-                  ((not (get-current 'waiting-for-ok #f))
-                   (game-next-player!)
-                   (cons
-                    (clear-left-display)
-                    (render-interface)))
-                  (else ;; auto ok if it's waiting
-                   (set-current! 'waiting-for-ok #f)
-                   (game-player-choice! 'no-choice)
-                   (game-change-state! 'end)
-                   (game-next-player!)
-                   (cons
-                    (clear-left-display)
-                    (render-interface))))))))))
+      (image-view 0 "strip" fillwrap)
+      (scroll-view-vert
+       0 (layout 'fill-parent 'wrap-content 1 'centre 0)
+       (list
+        ;;(mtext 'inventory)
+        (apply vert
+               (append
+                (render-items (player-items player))
+                (list (image-view 0 "strip" fillwrap)))
+               (apply append (map render-crop (player-crops player)))))))
+
+     (if (eq? (player-type player) 'ai)
+         '()
+         (list
+          (mbutton 'finished
+                   (lambda ()
+                     (cond
+                      ((not (get-current 'waiting-for-ok #f))
+                       (game-next-player!)
+                       (cons
+                        (clear-left-display)
+                        (render-interface)))
+                      (else ;; auto ok if it's waiting
+                       (set-current! 'waiting-for-ok #f)
+                       (game-player-choice! 'no-choice)
+                       (game-change-state! 'end)
+                       (game-next-player!)
+                       (cons
+                        (clear-left-display)
+                        (render-interface))))))))))))
 
 (define (game-view-build-interface game-view game-board)
-  (msg "game-view-build-interface")
-  (let* ((player (dbg (list-ref (board-players game-board)
-                           (game-view-current-player game-view))))
+  (let* ((player (list-ref (board-players game-board)
+                           (game-view-current-player game-view)))
          (location (dbg (player-location player)))
          (place (if (< location 0) '()
                     (list-ref (board-places game-board) location))))
@@ -1449,28 +1516,30 @@
    "main"
    (linear-layout
     0 'horizontal
-    (layout 'wrap-content 'fill-parent 1 'centre 0)
+    (layout 'wrap-content 'fill-parent 1 'centre 20)
     (list 0 0 0 0)
     (list
-     (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
      (vert
-      (mtitle 'bumpercrop)
-
       (horiz
        (vert
-        (mspinner 'language (list 'english 'hindi)
-                  (lambda (c)
-                    (cond
-                     ((not (eqv? c i18n-lang))
-                      (msg "lang setting" c)
-                      (set-setting! "language" "int" c)
-                      (set! i18n-lang c)
-                      (list (start-activity-goto "main" 0 "")))
-                     (else '()))))
-        (mbutton 'about (lambda (v) '()))
-        (mbutton-scale 'start-game-from-main
-                       (lambda ()
-                         (list (start-activity "game" 0 "")))))
+        (image-view 0 "logo" (layout 'fill-parent 'fill-parent 1 'centre 0))
+        (text-view 0 "(BETA)" 20 (layout 'wrap-content 'fill-parent 1 'centre 0))
+;        (mspinner 'language (list 'english 'hindi)
+;                  (lambda (c)
+;                    (cond
+;                     ((not (eqv? c i18n-lang))
+;                      (msg "lang setting" c)
+;                      (set-setting! "language" "int" c)
+;                      (set! i18n-lang c)
+;                      (list (start-activity-goto "main" 0 "")))
+;                     (else '()))))
+        (horiz
+         (mbutton-scale 'start-game-from-main
+                        (lambda ()
+                          (list (start-activity "game" 0 ""))))
+         (mbutton-scale 'about
+                        (lambda ()
+                          (list (start-activity "about" 0 ""))))))
 
        (vert
         (mspinner
@@ -1486,8 +1555,6 @@
          'player-4 (list 'ai 'human)
          (lambda (v) (set-current! 'player-4 (list-ref (list 'ai 'human) v)) '())))))
 
-
-     (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
      )
     )
    (lambda (activity arg)
@@ -1522,7 +1589,7 @@
         (list 155 255 155 0)
         (list))
 
-       (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
+       (image-view 0 "stripv" (layout 14 'fill-parent -1 'centre 0))
 
        (nomadic
         (make-id "b2x") (layout 'fill-parent 'fill-parent 0.5 'centre 0)
@@ -1558,7 +1625,7 @@
 
         '()))
 
-     (image-view 0 "stripv" (layout 'wrap-content 'fill-parent -1 'centre 0))
+     (image-view 0 "stripv" (layout 14 'fill-parent -1 'centre 0))
 
      (linear-layout
       (make-id "display") 'vertical
@@ -1579,6 +1646,63 @@
    (lambda (activity) '())
    (lambda (activity) '())
    (lambda (activity requestcode resultcode) '()))
+
+
+
+  (activity
+   "about"
+
+   (scroll-view-vert
+    0 (layout 'fill-parent 'wrap-content 1 'centre 0)
+    (list
+     (vert
+      (image-view 0 "logo" (layout 300 'fill-parent 1 'centre 0))
+      (text-view
+       0
+       "Bumper Crop is a social impact board game based on the experiences and challenges of being a small holding farmer in India. This digital prototype of the game was created by a team of UK/India academic researchers and practitioners working in partnership with the New Delhi-based non-profit organisation Digital Green as part of the Arts Humanities Research Council research project Play to Grow: Augmenting Agriculture with Social Impact Games. The project explored and tested the use of computer games as a method of storytelling and learning to engage urban users in complexities of rural development, agricultural practices and issues facing farmers in India. A paper version of the physical platform of the game, project reports, and conference papers produced through the project are all available to download from the project website: <a href='http://www.playtogrow.org'>www.playtogrow.org</a>"
+       14 (layout 'fill-parent 'wrap-content -1 'centre 10))
+
+      (image-view 0 "boardgame" (layout 'wrap-content 'fill-parent -1 'centre 0))
+
+
+      (text-view 0 "Credits" 20 (layout 'fill-parent 'wrap-content -1 'centre 5) 'centre)
+      (text-view 0 "<a href='http://www.falmouth.ac.uk/content/dr-misha-myers'>Dr. Misha Myers</a> - Principal Investigator" 14 (layout 'fill-parent 'wrap-content -1 'centre 0))
+      (text-view 0 "<a href='http://mahapatra-saswat.blogspot.co.uk/'>Saswat Mahapatra</a> - Animation Consultant" 14 (layout 'fill-parent 'wrap-content -1 'centre 0))
+      (text-view 0 "Associate Professor Nina Sabnani - Video Consultant" 14 (layout 'fill-parent 'wrap-content -1 'centre 0))
+      (text-view 0 "Professor Anirudha Joshi - User Research Consultant" 14 (layout 'fill-parent 'wrap-content -1 'centre 0))
+      (text-view 0 "Dave Griffiths - Software <a href='http://fo.am/kernow'>FoAM Kernow (UK)</a>" 14 (layout 'fill-parent 'wrap-content -1 'centre 0))
+      (text-view 0 "<a href='http://www.digitalgreen.org'>Digital Green</a> - Project Partner" 14 (layout 'fill-parent 'wrap-content -1 'centre 5))
+      (text-view 0 "Advisory Panel Members" 20 (layout 'fill-parent 'wrap-content -1 'centre 0))
+      (text-view 0 "Prof. Naomi Alderman, Game Designer, Zombie Run (UK); Tasso Stevens, Co-Director of Coney (UK); Michael Straeubig, Game Designer, i3 Games (DE); Megan Lloyd-Laney, Comm Consult (UK); Nance Klehm, Social Ecologies (US); Jen Southern, Centre for Mobilities Research (CeMoRe) (UK); Dr. Katerina Psarikidou, Centre for Mobilities Research (CeMoRe)(UK); Bharath Palavalli, Fields of View (IN); Guillaume Benoit, Head of Game Design, DSK Supinfogame (IN)" 14 (layout 'fill-parent 'wrap-content -1 'centre 5))
+      (spacer 20)
+      (text-view 0 "<a href='https://github.com/nebogeo/bumper-crop'>Open Source software</a> assembled in Cornwall by" 20 (layout 'fill-parent 'wrap-content -1 'centre 10))
+      (image-view 0 "foam" (layout 'wrap-content 'wrap-content -1 'centre 0))
+
+      (text-view 0 "Supported by" 20 (layout 'fill-parent 'wrap-content -1 'centre 10))
+
+      (image-view 0 "ahrc" (layout 'wrap-content 'fill-parent -1 'centre 0))
+      (image-view 0 "falmouth" (layout 'wrap-content 'fill-parent -1 'centre 0))
+      (spacer 20)
+      (mbutton-scale 'back-from-about
+                     (lambda ()
+                       (list (finish-activity 0 ""))))
+
+      )))
+   (lambda (activity arg)
+     (activity-layout activity))
+   (lambda (activity arg) '())
+   (lambda (activity) '())
+   (lambda (activity) '())
+   (lambda (activity) '())
+   (lambda (activity) '())
+   (lambda (activity requestcode resultcode) '()))
+
+
+
+
+
+
+
 
   )
 
