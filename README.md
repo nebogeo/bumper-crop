@@ -1,4 +1,5 @@
-== Bumper Crop ==
+Bumper Crop
+===========
 
 Bumper Crop is a social impact board game based on the experiences and
 challenges of being a small holding farmer in India. This digital
